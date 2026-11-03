@@ -1,6 +1,6 @@
 # Установить Docker и Supabase CLI на машину разработки
 
-Status: ready-for-human
+Status: done
 
 Веха 1 (схема и движок). Спека: `.scratch/v1/spec/`, ADR: `docs/adr/`, термины: `GLOSSARY.md`.
 
@@ -15,3 +15,5 @@ Status: ready-for-human
 Это системная установка с правами root, поэтому за человеком (или агент по явному разрешению).
 
 ## Comments
+
+- 2026-11-03: Docker 29.9.2 (владелец), Supabase CLI 3.0.0 в `~/.local/bin`.
