@@ -1,7 +1,7 @@
-# CD: автодеплой на прод (этот VPS)
+# 21: CD: автодеплой на прод (этот VPS)
 
 Status: needs-info
-Blocked by: 02
+Blocked by: 04
 
 Веха деплоя. Спека: `.scratch/v1/spec/01-architecture.md` (раздел 6).
 
