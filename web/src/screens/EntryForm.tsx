@@ -28,6 +28,10 @@ import { EffectPreview, useEntryPreview } from "./EntryPreview";
 import { ConversionBlock, CurrencySelect, useNbkRate } from "./Conversion";
 import { CURRENCIES, conversionFields, conversionFromEntry, type ConversionInput } from "../currency";
 import { currencySign } from "../money";
+import { notePrefill } from "../files";
+import { removeFiles } from "../storage";
+import { AttachmentsBlock, attachFiles } from "./Attachments";
+import { NoteCard, type NoteRow } from "./Notes";
 
 type FormType =
   | "expense"
@@ -92,7 +96,7 @@ const PURPOSE_HINTS: Record<TransferPurpose, string> = {
 
 const PURPOSE_ORDER: TransferPurpose[] = ["move_own", "move_company", "repay_debt", "take_advance"];
 
-export type SaveResult = { message: string; warnings: EntryWarning[] };
+export type SaveResult = { message: string; warnings: EntryWarning[]; problem?: string };
 
 /** Что перенести из быстрого ввода в полную форму («развернуть», док 04, 4.1): поля как ввели. */
 export type EntryPrefill = {
@@ -121,8 +125,11 @@ export function EntryForm(props: {
   onRefund?: (parent: RefundParent) => void;
   /** Новая трата, развёрнутая из быстрого ввода. */
   prefill?: EntryPrefill;
+  /** Разбор заметки: новая запись любого типа из неё (convert_note_to_entry). */
+  fromNote?: NoteRow;
 }) {
-  const { entry, accountingStartDate, prefill } = props;
+  const { entry, accountingStartDate, prefill, fromNote } = props;
+  const notePre = fromNote ? notePrefill(fromNote.text) : null;
   // Черновик быстрого ввода: «Учесть трату» зовёт promote_draft, категория по желанию (ADR-0009).
   const isDraft = entry?.status === "draft";
   const refundParent = entry?.type === "expense" ? refundParentOf(entry) : null;
@@ -160,8 +167,9 @@ export function EntryForm(props: {
   const [adjMode, setAdjMode] = useState<AdjustmentMode | null>(entry?.adjustment_mode ?? null);
   // «Чьи деньги» у корректировки остатка: деньги компании = «меняет аванс».
   const [adjMoney, setAdjMoney] = useState<Source>(entry?.adjustment_affects_advance ? "company" : "own");
-  const [title, setTitle] = useState(entry?.title ?? prefill?.title ?? "");
-  const [comment, setComment] = useState(entry?.comment ?? "");
+  const [title, setTitle] = useState(entry?.title ?? prefill?.title ?? notePre?.title ?? "");
+  const [comment, setComment] = useState(entry?.comment ?? notePre?.comment ?? "");
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [currency, setCurrency] = useState(entry?.currency ?? "KZT");
   const [conversion, setConversion] = useState<ConversionInput>(conversionFromEntry(entry));
   const [busy, setBusy] = useState(false);
@@ -326,12 +334,21 @@ export function EntryForm(props: {
       ? await supabase.rpc("promote_draft", { p_entry_id: entry.entry_id, p_payload: payload })
       : entry
         ? await supabase.rpc("update_entry", { p_entry_id: entry.entry_id, p_payload: payload })
-        : await supabase.rpc("create_entry", { p_payload: payload });
+        : fromNote
+          ? await supabase.rpc("convert_note_to_entry", { p_note_id: fromNote.id, p_payload: payload })
+          : await supabase.rpc("create_entry", { p_payload: payload });
+    if (error) {
+      setBusy(false);
+      return setFailure(entryErrorText(error, (d) => isSelfConflict(d, amountMinor)));
+    }
+    const saved = data as { entry_id: string; warnings?: EntryWarning[] };
+    // Файлы новой записи прикрепляются, когда у неё появился id.
+    const failed = pendingFiles.length > 0 ? await attachFiles(saved.entry_id, pendingFiles) : 0;
     setBusy(false);
-    if (error) return setFailure(entryErrorText(error, (d) => isSelfConflict(d, amountMinor)));
     props.onSaved({
       message: isDraft ? "Трата учтена" : entry ? "Запись сохранена" : SAVED[type],
-      warnings: ((data as { warnings?: EntryWarning[] }).warnings ?? []) as EntryWarning[],
+      warnings: (saved.warnings ?? []) as EntryWarning[],
+      problem: failed > 0 ? "Запись сохранена, но не все файлы прикрепились: откройте её и приложите снова." : undefined,
     });
   }
 
@@ -343,6 +360,7 @@ export function EntryForm(props: {
     const { data, error } = await supabase.rpc("delete_entry", { p_entry_id: entry.entry_id });
     setBusy(false);
     if (error) return setFailure(entryErrorText(error, () => false));
+    await removeFiles((data as { removed_files?: unknown }).removed_files);
     props.onSaved({ message: "Запись удалена", warnings: ((data as { warnings?: EntryWarning[] }).warnings ?? []) });
   }
 
@@ -355,6 +373,12 @@ export function EntryForm(props: {
 
   return (
     <form className="account-form entry-form" onSubmit={submit} noValidate>
+      {fromNote && (
+        <div className="from-note">
+          <p className="muted">Запись из заметки: заметка станет разобранной и получит ссылку на запись.</p>
+          <NoteCard note={fromNote} />
+        </div>
+      )}
       {isDraft && (
         <p className="draft-note">
           Черновик из быстрого ввода: на остаток, аванс и долг не влияет, пока вы его не учтёте.
@@ -831,6 +855,13 @@ export function EntryForm(props: {
         <label htmlFor="entry-comment">Комментарий</label>
         <textarea id="entry-comment" rows={2} value={comment} onChange={(e) => setComment(e.target.value)} />
       </div>
+
+      <AttachmentsBlock
+        entryId={entry?.entry_id}
+        pending={pendingFiles}
+        onPending={setPendingFiles}
+        noteScreenshot={!!fromNote?.attachment_path}
+      />
 
       <EffectPreview
         state={preview}

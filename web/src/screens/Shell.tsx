@@ -7,6 +7,7 @@ import { Entries } from "./Entries";
 import { EntryForm, type EntryPrefill, type SaveResult } from "./EntryForm";
 import { QuickCapture } from "./QuickCapture";
 import { Inbox, useInboxCount } from "./Inbox";
+import { NoteComposer, Notes, type NoteRow } from "./Notes";
 import { SheetDialog } from "./form";
 import { RefundForm, refundParentOf, type RefundParent } from "./RefundForm";
 import { supabase } from "../supabase";
@@ -22,6 +23,7 @@ const sections: Section[] = [
   { id: "company", label: "С компанией", title: "Расчёт с компанией", empty: "", phone: true },
   { id: "accounts", label: "Счета", title: "Счета", empty: "Счетов пока нет. Добавьте карту, банковский счёт или наличные.", phone: false },
   { id: "categories", label: "Категории", title: "Категории", empty: "", phone: false },
+  { id: "notes", label: "Заметки", title: "Заметки", empty: "", phone: false },
 ];
 
 function sectionFromHash(): Section {
@@ -44,7 +46,16 @@ export function Shell({
   // Лист записи: быстрый ввод (quick), новая полная (entry не задан, prefill из быстрого ввода)
   // или правка. revision перемонтирует экран и обновляет бейдж инбокса после сохранения.
   const [sheet, setSheet] = useState<
-    { quick?: boolean; entry?: EntryRow; refundOf?: RefundParent; prefill?: EntryPrefill } | null
+    {
+      quick?: boolean;
+      entry?: EntryRow;
+      refundOf?: RefundParent;
+      prefill?: EntryPrefill;
+      /** Разбор заметки: полная форма из неё. */
+      note?: NoteRow;
+      /** Новая заметка. */
+      newNote?: boolean;
+    } | null
   >(null);
   const [revision, setRevision] = useState(0);
   const inboxCount = useInboxCount(revision);
@@ -61,11 +72,12 @@ export function Shell({
     setSheet(null);
     setToast(result.message);
     setRevision((r) => r + 1);
-    if (result.warnings.length === 0) return setNotices([]);
+    const extra = result.problem ? [result.problem] : [];
+    if (result.warnings.length === 0) return setNotices(extra);
     const { data } = await supabase.from("accounts").select("id, name, currency");
     const names = new Map((data ?? []).map((a) => [a.id as string, a.name as string]));
     const currencies = new Map((data ?? []).map((a) => [a.id as string, a.currency as string]));
-    setNotices(warningLines(result.warnings, names, currencies));
+    setNotices([...extra, ...warningLines(result.warnings, names, currencies)]);
   }
 
   useEffect(() => {
@@ -102,6 +114,9 @@ export function Shell({
           </a>
           <a className="button button--quiet" href="#/categories" aria-current={current.id === "categories" ? "page" : undefined}>
             Категории
+          </a>
+          <a className="button button--quiet" href="#/notes" aria-current={current.id === "notes" ? "page" : undefined}>
+            Заметки
           </a>
           <button className="button button--quiet" type="button" onClick={onSignOut}>
             Выйти
@@ -152,7 +167,13 @@ export function Shell({
             ) : current.id === "entries" ? (
               <Entries onEdit={(entry) => setSheet({ entry })} onCreate={() => setSheet({ quick: true })} />
             ) : current.id === "inbox" ? (
-              <Inbox onOpen={(entry) => setSheet({ entry })} onCapture={() => setSheet({ quick: true })} />
+              <Inbox
+                onOpen={(entry) => setSheet({ entry })}
+                onOpenNote={(note) => setSheet({ note })}
+                onCapture={() => setSheet({ quick: true })}
+              />
+            ) : current.id === "notes" ? (
+              <Notes onProcess={(note) => setSheet({ note })} onOpenEntry={(entry) => setSheet({ entry })} />
             ) : (
               <p className="empty">{current.empty}</p>
             )}
@@ -160,16 +181,31 @@ export function Shell({
         </section>
       </main>
 
-      {sheet && (
+      {sheet?.newNote && (
+        <SheetDialog title="Заметка" onClose={() => setSheet(null)}>
+          <NoteComposer
+            onSaved={() => {
+              setSheet(null);
+              setToast("Заметка сохранена");
+              setRevision((r) => r + 1);
+            }}
+          />
+        </SheetDialog>
+      )}
+      {sheet && !sheet.newNote && (
         <EntrySheet
           key={
             sheet.refundOf
               ? `refund:${sheet.refundOf.entry_id}`
-              : (sheet.entry?.entry_id ?? (sheet.quick ? "quick" : sheet.prefill ? "expanded" : "new"))
+              : sheet.note
+                ? `note:${sheet.note.id}`
+                : (sheet.entry?.entry_id ?? (sheet.quick ? "quick" : sheet.prefill ? "expanded" : "new"))
           }
           quick={sheet.quick}
           prefill={sheet.prefill}
           onExpand={(prefill) => setSheet({ prefill })}
+          onNote={() => setSheet({ newNote: true })}
+          note={sheet.note}
           entry={sheet.entry}
           refundOf={sheet.refundOf}
           onRefund={(refundOf) => setSheet({ refundOf })}
@@ -210,6 +246,8 @@ function EntrySheet(props: {
   quick?: boolean;
   prefill?: EntryPrefill;
   onExpand: (prefill: EntryPrefill) => void;
+  onNote: () => void;
+  note?: NoteRow;
   entry?: EntryRow;
   refundOf?: RefundParent;
   onRefund: (parent: RefundParent) => void;
@@ -245,7 +283,17 @@ function EntrySheet(props: {
     );
   return (
     <SheetDialog
-      title={props.quick ? "Быстрая трата" : props.entry?.status === "draft" ? "Черновик" : props.entry ? "Запись" : "Новая запись"}
+      title={
+        props.quick
+          ? "Быстрая трата"
+          : props.note
+            ? "Запись из заметки"
+            : props.entry?.status === "draft"
+              ? "Черновик"
+              : props.entry
+                ? "Запись"
+                : "Новая запись"
+      }
       onClose={props.onClose}
     >
       {refs === null ? (
@@ -260,11 +308,13 @@ function EntrySheet(props: {
           accountingStartDate={props.accountingStartDate}
           onSaved={props.onSaved}
           onExpand={props.onExpand}
+          onNote={props.onNote}
         />
       ) : (
         <EntryForm
           entry={props.entry}
           prefill={props.prefill}
+          fromNote={props.note}
           accounts={refs.accounts}
           categories={refs.categories}
           accountingStartDate={props.accountingStartDate}

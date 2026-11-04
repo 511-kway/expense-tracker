@@ -37,6 +37,11 @@ const MESSAGES: Record<string, string> = {
   refund_before_expense: "Возврат покупки не может быть раньше своей траты",
   refund_parent_not_expense: "Возврат покупки записывается только по трате",
   expense_has_refunds: "По трате записан возврат покупки: сначала удалите его",
+  note_empty: "Напишите текст или приложите скрин",
+  note_not_found: "Заметка не найдена: возможно, её уже удалили",
+  note_already_processed: "Заметка уже разобрана: запись из неё есть в разобранных",
+  file_not_found: "Файл не загрузился. Приложите его ещё раз",
+  attachment_not_found: "Вложение не найдено: возможно, его уже открепили",
 };
 
 export function errorText(error: { message?: string } | null | undefined): string {

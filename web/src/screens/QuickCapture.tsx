@@ -24,6 +24,8 @@ export function QuickCapture(props: {
   accountingStartDate: string;
   onSaved: (result: SaveResult) => void;
   onExpand: (prefill: EntryPrefill) => void;
+  /** Режим «заметка» (док 04, 4.1): текст или скрин, не запись. */
+  onNote?: () => void;
 }) {
   const accounts = props.accounts.filter((a) => !a.is_archived);
   const today = todayInAlmaty();
@@ -174,6 +176,11 @@ export function QuickCapture(props: {
         <button className="button button--quiet" type="button" onClick={expand}>
           Развернуть в полную форму
         </button>
+        {props.onNote && (
+          <button className="button button--quiet" type="button" onClick={props.onNote}>
+            Это заметка, не трата
+          </button>
+        )}
         {failure && (
           <p className="error" role="alert">
             {failure}
