@@ -410,6 +410,9 @@ deno_version = 2
 [functions.fetch_rates]
 verify_jwt = true
 
+[functions.export]
+verify_jwt = true
+
 [analytics]
 enabled = true
 port = 54327

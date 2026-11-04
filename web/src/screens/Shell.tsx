@@ -9,6 +9,7 @@ import { QuickCapture } from "./QuickCapture";
 import { Inbox, useInboxCount } from "./Inbox";
 import { NoteComposer, Notes, type NoteRow } from "./Notes";
 import { SheetDialog } from "./form";
+import { Export } from "./Export";
 import { RefundForm, refundParentOf, type RefundParent } from "./RefundForm";
 import { supabase } from "../supabase";
 import { warningLines, type EntryRow } from "../entries";
@@ -24,6 +25,7 @@ const sections: Section[] = [
   { id: "accounts", label: "Счета", title: "Счета", empty: "Счетов пока нет. Добавьте карту, банковский счёт или наличные.", phone: false },
   { id: "categories", label: "Категории", title: "Категории", empty: "", phone: false },
   { id: "notes", label: "Заметки", title: "Заметки", empty: "", phone: false },
+  { id: "export", label: "Экспорт", title: "Экспорт", empty: "", phone: false },
 ];
 
 function sectionFromHash(): Section {
@@ -118,6 +120,9 @@ export function Shell({
           <a className="button button--quiet" href="#/notes" aria-current={current.id === "notes" ? "page" : undefined}>
             Заметки
           </a>
+          <a className="button button--quiet" href="#/export" aria-current={current.id === "export" ? "page" : undefined}>
+            Экспорт
+          </a>
           <button className="button button--quiet" type="button" onClick={onSignOut}>
             Выйти
           </button>
@@ -172,6 +177,8 @@ export function Shell({
                 onOpenNote={(note) => setSheet({ note })}
                 onCapture={() => setSheet({ quick: true })}
               />
+            ) : current.id === "export" ? (
+              <Export accountingStartDate={accountingStartDate} />
             ) : current.id === "notes" ? (
               <Notes onProcess={(note) => setSheet({ note })} onOpenEntry={(entry) => setSheet({ entry })} />
             ) : (

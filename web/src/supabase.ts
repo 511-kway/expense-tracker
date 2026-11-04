@@ -8,6 +8,7 @@ if (!url || !anonKey) {
 }
 
 export const supabaseUrl = url;
+export const supabaseAnonKey = anonKey;
 // PKCE: после входа в адресе приходит ?code=, а не токены в #hash.
 export const supabase = createClient(url, anonKey, { auth: { flowType: "pkce" } });
 

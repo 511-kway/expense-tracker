@@ -75,6 +75,6 @@ jobs:
 
       - run: deno fmt --check
       - run: deno lint
-      - run: deno check fetch_rates/index.ts
-      # Тесты не ходят в сеть: HTTP к Нацбанку и кэш подменяются в handler_test.ts.
+      - run: deno check fetch_rates/index.ts export/index.ts
+      # Тесты не ходят в сеть: HTTP к Нацбанку, кэш и выборки экспорта подменяются в *_test.ts.
       - run: deno test
