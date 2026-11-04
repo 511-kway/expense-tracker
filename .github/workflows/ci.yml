@@ -1,0 +1,30 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  db-tests:
+    name: migrations + pgTAP
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 3.0.0
+
+      - name: Start Postgres
+        run: supabase db start
+
+      - name: Apply migrations on a clean database
+        run: supabase db reset
+
+      - name: Run database tests
+        run: supabase test db
