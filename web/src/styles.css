@@ -2439,3 +2439,102 @@ a.account:hover .account__name {
 .overview__nudge-action {
   margin-left: auto;
 }
+
+/* Настройки: доступ для Claude Code. Свежий токен выделен линией --ink слева (показан один раз),
+   состояние доступа списком как файлы экспорта. Смысловые цвета «свои» и «компания» не трогаем. */
+.claude-access {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.125rem;
+  max-width: 36rem;
+}
+
+.claude-access__fresh {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.875rem 1rem;
+  border-left: 3px solid var(--ink);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  background: var(--surface);
+}
+
+.claude-access__fresh label {
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}
+
+.claude-access__token {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+}
+
+.claude-access__token input {
+  min-width: 0;
+  min-height: 3rem;
+  padding: 0 0.875rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+}
+
+.claude-access__status {
+  display: grid;
+  gap: 0.625rem;
+  margin: 0;
+  padding: 0.25rem 0 0.25rem 1rem;
+  border-left: 3px solid var(--line);
+}
+
+.claude-access__status div {
+  display: grid;
+  grid-template-columns: 10rem minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+.claude-access__status dt {
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+
+.claude-access__status dd {
+  margin: 0;
+}
+
+.claude-access__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.claude-access__howto summary {
+  cursor: pointer;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+
+.claude-access__howto[open] summary {
+  margin-bottom: 0.5rem;
+}
+
+.claude-access__howto pre {
+  margin: 0.5rem 0 0;
+  padding: 0.75rem 0.875rem;
+  overflow-x: auto;
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+
+@media (max-width: 30rem) {
+  .claude-access__status div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+}

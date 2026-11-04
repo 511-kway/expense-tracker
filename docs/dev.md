@@ -24,11 +24,11 @@ Edge Functions (Deno) лежат в `supabase/functions/`. Их тесты не 
 
 ```bash
 cd supabase/functions && deno test   # нужен Deno 2 (https://deno.com), в CI denoland/setup-deno
-deno fmt --check && deno lint && deno check fetch_rates/index.ts export/index.ts import_parse/index.ts
+deno fmt --check && deno lint && deno check fetch_rates/index.ts export/index.ts import_parse/index.ts claude_ingest/index.ts
 # без локального Deno: docker run --rm -v "$PWD:/app" -w /app --entrypoint deno denoland/deno:2.5.6 test
 ```
 
-В стеке функции крутит контейнер `supabase_edge_runtime_*` (его поднимает `dev-up.sh`, отдельного порта нет): они отвечают на `http://127.0.0.1:54321/functions/v1/<имя>` через тот же шлюз API, только с JWT пользователя (`verify_jwt` в `config.toml`). CLI копирует папку функций в контейнер при старте, поэтому новую функцию стек увидит после `supabase stop && ./scripts/dev-up.sh`; правки уже известной подхватываются сами. `supabase functions serve` не нужен.
+В стеке функции крутит контейнер `supabase_edge_runtime_*` (его поднимает `dev-up.sh`, отдельного порта нет): они отвечают на `http://127.0.0.1:54321/functions/v1/<имя>` через тот же шлюз API, только с JWT пользователя (`verify_jwt` в `config.toml`); исключение `claude_ingest` (`verify_jwt = false`, вход по служебному токену). CLI копирует папку функций в контейнер при старте, поэтому новую функцию стек увидит после `supabase stop && ./scripts/dev-up.sh`; правки уже известной обычно подхватываются сами, а если нет, `docker restart supabase_edge_runtime_<project_id>`. `supabase functions serve` не нужен.
 
 Studio, API, почта и фронт доступны с вашего компьютера через SSH-туннель:
 
@@ -61,6 +61,20 @@ RPC с данными первым шагом зовут `perform public.assert_
 Денежная логика в схеме `engine` (миграция `20261105120000_engine_and_first_run.sql`), наружу её не видно. Любая RPC, меняющая записи, в конце зовёт `engine.recompute(user_id)`: полный пересчёт журнала по хронологии (ADR-0002, ADR-0006). Новый тип записи: функция `engine.apply_<тип>(st, e)` и ветка в `engine.apply_entry`; движения только через `engine.post`, нарушения правил через `engine.fail('<код>', e, info)`, предупреждения в `engine.collect_warnings`. Ошибка приходит клиенту как `message` = код, `details` = JSON с `entry_id`. Корректировка (`engine.apply_adjustment`) умеет цели «остаток» (с авансом или без) и обе стороны долга; счета и стартовый остаток в миграции `20261106120000_accounts.sql`.
 
 Записи создаются, правятся и удаляются только RPC `create_entry(p_payload)`, `update_entry(p_entry_id, p_payload)`, `delete_entry(p_entry_id)` (миграция `20261107120000_expense_and_income.sql`); payload по доку 05, суммы целыми тиынами. Путь записи: `engine.entry_from_payload` (JSON → строка, неверный тип значения = `field_invalid`) → `engine.check_entry` (общие поля, дата начала учёта, затем ветка по типу `engine.check_<тип>(n, e)`: переносит в чистую строку только поля своего типа и проверяет их) → `engine.insert_entry` / `engine.replace_entry` → `engine.recompute`. Новый тип записи: `engine.check_<тип>` и ветка в `engine.check_entry` плюс `engine.apply_<тип>` и ветка в `engine.apply_entry`. Пополнение от компании и изъятие аванса в миграции `20261108120000_company_topup.sql` (комиссию пополнения в форме считает RPC `topup_amounts`). Переводы в миграции `20261109120000_transfers.sql` (форме долг на дату отдаёт RPC `debt_on_date`). Погашение долга и взаимозачёт, выборка разбора долга `v_settlement_breakdown` в миграции `20261110120000_settlement_and_netting.sql`. Корректировки (остаток и стороны долга) через `create_entry` в миграции `20261111120000_adjustments.sql`. Возврат покупки (по трате, восстановление по накопленной сумме возвратов, форме остаток отдаёт RPC `refund_remaining`) в миграции `20261112120000_refunds.sql`. Валюта в миграции `20261114120000_currency.sql`: тенговый эквивалент записи делает `engine.convert_to_kzt` (способы `nbk` из кэша `fx_rates`, `manual`, `derived`; `round(amount_minor × rate)` один раз при сохранении), правила валюты на одном счёте `engine.check_entry_currency`, форме эквивалент отдаёт RPC `convert_amount`; курс Нацбанка в кэш кладёт Edge Function `fetch_rates` (`supabase/functions/fetch_rates`). Экспорт: Edge Function `export` строит zip из `v_export_entries` и `v_settlement_movements` (миграция `20261117120000_export.sql`) по схеме `supabase/functions/_shared/schema.ts` (единая с импортом, док 04, раздел 8). Импорт: Edge Function `import_parse` разбирает файл в строки по той же схеме (`importRow` в `_shared/schema.ts`), RPC `import_preview` / `import_commit` и таблица `import_batches` в миграции `20261118120000_import.sql`; строка проверяется теми же `engine.entry_from_payload` → `engine.check_entry` → `engine.require_category`, что и `create_entry`, поэтому новый тип записи попадает в импорт сам. Предпросмотр `preview_entry(p_payload, p_entry_id)` в миграции `20261113120000_preview.sql`: зовёт сами `create_entry` / `update_entry` и откатывает подтранзакцию, поэтому новый тип записи попадает в предпросмотр сам. Ответ `{ok, entry_id, status, warnings}`: предупреждения о дубле (`possible_duplicate`) и пересчёта (`negative_balance`, его выдаёт `engine.collect_warnings(до, после, запись)`).
+
+## Вход для Claude Code (тикет 20)
+
+Edge Function `claude_ingest` и миграция `20261120120000_claude_ingest.sql`, подробно для Claude Code в `docs/claude-code-ingest.md`.
+
+- Токен выпускает владелец: «Настройки» → «Доступ для Claude Code» (RPC `claude_token_generate()`, показывается один раз; `claude_token_revoke()` отзывает). Таблица `claude_tokens` (одна строка на владельца, `apply_user_rls`): `token_hash` = SHA-256 hex, клиенту доступны только `token_hint`, `created_at`, `expires_at`, `last_used_at` (GRANT по колонкам).
+- Функция считает хэш и зовёт RPC `claude_ingest(p_token_hash, p_request)` ключом service_role; `authenticated` и `anon` её звать не могут. RPC ставит `request.jwt.claim.sub` / `request.jwt.claims` владельца на время вызова и зовёт `create_entry`, `convert_note_to_entry` или `quick_capture`, поэтому новый тип записи и новые правила попадают во вход сами. Не больше 60 вызовов в минуту на токен, тело до 64 КиБ.
+- Локально (после `supabase stop && ./scripts/dev-up.sh`, если функция новая):
+
+```bash
+curl -s -X POST http://127.0.0.1:54321/functions/v1/claude_ingest \
+  -H "X-Claude-Token: etk_ВАШ_ТОКЕН_ИЗ_НАСТРОЕК" -H "Content-Type: application/json" \
+  -d '{"action": "context"}'
+```
 
 ## Вход через Google на localhost
 

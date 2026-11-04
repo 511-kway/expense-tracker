@@ -12,6 +12,7 @@ import { SheetDialog } from "./form";
 import { Export } from "./Export";
 import { Import } from "./Import";
 import { Overview } from "./Overview";
+import { ClaudeAccess } from "./ClaudeAccess";
 import { RefundForm, refundParentOf, type RefundParent } from "./RefundForm";
 import { supabase } from "../supabase";
 import { warningLines, type EntryRow } from "../entries";
@@ -29,6 +30,7 @@ const sections: Section[] = [
   { id: "notes", label: "Заметки", title: "Заметки", primary: false },
   { id: "import", label: "Импорт", title: "Импорт", primary: false },
   { id: "export", label: "Экспорт", title: "Экспорт", primary: false },
+  { id: "settings", label: "Настройки", title: "Настройки", primary: false },
 ];
 
 function sectionFromHash(): Section {
@@ -188,6 +190,8 @@ export function Shell({
           <div key={`${current.id}:${revision}`} className="section__body">
             {current.id === "overview" ? (
               <Overview />
+            ) : current.id === "settings" ? (
+              <ClaudeAccess />
             ) : current.id === "company" ? (
               <CompanySettlement accountingStartDate={accountingStartDate} onEdit={(entry) => setSheet({ entry })} />
             ) : current.id === "accounts" ? (

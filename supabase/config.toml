@@ -416,6 +416,10 @@ verify_jwt = true
 [functions.import_parse]
 verify_jwt = true
 
+# Вход для Claude Code: без JWT пользователя, доступ по служебному токену (X-Claude-Token).
+[functions.claude_ingest]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

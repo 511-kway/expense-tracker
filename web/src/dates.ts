@@ -14,3 +14,15 @@ export function formatDate(iso: string): string {
     .format(new Date(Date.UTC(y!, m! - 1, d!)))
     .replace(/\s*г\.$/, "");
 }
+
+/** Момент (timestamptz из базы) → «4 ноября 2026, 20:32» по Алматы. */
+export function formatDateTime(iso: string): string {
+  const moment = new Date(iso);
+  const date = formatDate(todayInAlmaty(moment));
+  const time = new Intl.DateTimeFormat("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: ACCOUNTING_TIME_ZONE,
+  }).format(moment);
+  return `${date}, ${time}`;
+}

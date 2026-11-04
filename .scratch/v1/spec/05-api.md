@@ -134,6 +134,8 @@ RPC для блока пересчёта в форме (тикет 14): тенг
 ### claude_ingest(payload, service_token) → { entry_id }
 Вход для Claude Code: создаёт запись из разобранной заметки. Проверяет служебный токен (сравнение по хэшу). Дальше та же логика, что `create_entry`. Пишет под `user_id` владельца.
 
+Реализация (тикет 20): Edge Function `supabase/functions/claude_ingest` (`verify_jwt = false`), POST JSON до 64 КиБ, токен в `X-Claude-Token` (или `Authorization: Bearer etk_…`) → SHA-256 → RPC `claude_ingest(p_token_hash, p_request)` только для service_role. `p_request = {action, payload?, note_id?}`, action: `create_entry`, `convert_note` (= `convert_note_to_entry`), `quick_capture`, `context` (счета, категории, новые заметки со ссылкой на скрин на 10 минут). Ответ RPC записи как есть (`{ok, entry_id, status, warnings, source_pending}`) или `{ok: false, error, details}`: `401 token_invalid`, `403 not_allowed`, `429 rate_limited` (60 в минуту на токен), `413 payload_too_large`, `400 field_invalid`, `422` прочие коды этого раздела. Токен: `claude_token_generate()` (показывается один раз) / `claude_token_revoke()`, таблица `claude_tokens`. Как звать: `docs/claude-code-ingest.md`.
+
 ## 5. Коды ошибок
 
 Возвращаются функциями записи. Клиент показывает понятный текст.
