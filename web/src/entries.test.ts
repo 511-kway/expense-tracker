@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { entryTitle, errorDetails, formatSigned, warningLines } from "./entries";
+import { advanceReturnErrorText, entryTitle, errorDetails, formatSigned, warningLines } from "./entries";
 
 const names = new Map([["a1", "Kaspi Gold"]]);
 
@@ -51,5 +51,20 @@ describe("formatSigned", () => {
     expect(formatSigned(2000000, "KZT")).toBe("+20 000 ₸");
     expect(formatSigned(-6000000, "KZT")).toBe("−60 000 ₸");
     expect(formatSigned(0, "KZT")).toBe("0 ₸");
+  });
+});
+
+describe("advanceReturnErrorText", () => {
+  const details = { entry_id: "w1", occurred_on: "2026-11-05", advance_minor: 4000000, amount_minor: 6000000 };
+
+  it("names the advance on the date when the withdrawal itself is too big", () => {
+    expect(advanceReturnErrorText(details, true)).toBe("Изъять можно не больше аванса на эту дату: 40\u00a0000\u00a0₸.");
+  });
+
+  it("names the later withdrawal that a backdated change would break", () => {
+    expect(advanceReturnErrorText(details, false)).toBe(
+      "Не получится: изъятие аванса 5 ноября 2026 на 60\u00a0000\u00a0₸ станет больше аванса на ту дату " +
+        "(40\u00a0000\u00a0₸). Сначала измените или удалите это изъятие.",
+    );
   });
 });

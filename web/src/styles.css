@@ -860,6 +860,37 @@ a.button--quiet[aria-current="page"] {
   position: relative;
 }
 
+/* Тип записи: ровная сетка 2×2, длинные названия переносятся внутри сегмента */
+.choice__options--grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.choice__options--grid .choice__option > span:not(.swatch) {
+  display: flex;
+  width: 100%;
+  padding: 0.5rem 0.875rem;
+  line-height: 1.25;
+}
+
+/* Пополнение: что придёт на счёт и как ляжет комиссия, суммы от сервера */
+.topup-summary {
+  display: grid;
+  gap: 0.375rem;
+  padding: 0.875rem 1rem;
+  border-left: 3px solid var(--company);
+  background: color-mix(in srgb, var(--company) 7%, var(--surface));
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+}
+
+.topup-summary p {
+  margin: 0;
+}
+
+.topup-summary .amount {
+  font-weight: 600;
+}
+
 .choice__option input {
   position: absolute;
   opacity: 0;

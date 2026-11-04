@@ -4,8 +4,8 @@ import { formatMoney } from "../money";
 import { formatDate } from "../dates";
 import { ENTRY_COLUMNS, entryTitle, formatSigned, type EntryRow } from "../entries";
 
-/** Трата и поступление правятся в форме; остальные типы появятся со своими тикетами. */
-const EDITABLE = new Set(["expense", "income"]);
+/** Эти типы правятся в форме; остальные появятся со своими тикетами. */
+const EDITABLE = new Set(["expense", "income", "company_topup", "company_advance_return"]);
 
 /**
  * Лента записей по датам, новые сверху. У каждой строки сумма и что запись сделала с авансом
@@ -103,6 +103,8 @@ function meta(e: EntryRow): string {
     else parts.push(e.source === "company" ? "личное, деньгами компании" : "личное");
   }
   if (e.type === "income" && e.category_name) parts.push("поступление");
+  if (e.type === "company_topup" && e.fee_minor > 0)
+    parts.push(`комиссия ${formatMoney(e.fee_minor, e.currency)}, ${e.fee_payer === "own" ? "платил я" : "платила компания"}`);
   if (e.comment) parts.push(e.comment);
   return parts.join(", ");
 }

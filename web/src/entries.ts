@@ -32,10 +32,12 @@ export type EntryRow = {
   advance_delta_minor: number;
   company_owes_me_delta_minor: number;
   i_owe_company_delta_minor: number;
+  fee_minor: number;
+  fee_payer: "own" | "company" | null;
 };
 
 export const ENTRY_COLUMNS =
-  "entry_id, type, status, occurred_on, amount_minor, currency, account_id, account_name, category_id, category_name, purpose, source, comment, title, balance_delta_minor, advance_delta_minor, company_owes_me_delta_minor, i_owe_company_delta_minor";
+  "entry_id, type, status, occurred_on, amount_minor, currency, account_id, account_name, category_id, category_name, purpose, source, comment, title, balance_delta_minor, advance_delta_minor, company_owes_me_delta_minor, i_owe_company_delta_minor, fee_minor, fee_payer";
 
 /** Предупреждение из ответа create_entry / update_entry / delete_entry. */
 export type EntryWarning =
@@ -100,4 +102,19 @@ export function errorDetails(error: { details?: string | null }): Record<string,
 /** Сумма со знаком для ленты: «+20 000 ₸», «−60 000 ₸», ноль без знака. */
 export function formatSigned(minor: number, currency: string): string {
   return `${minor > 0 ? "+" : ""}${formatMoney(minor, currency)}`;
+}
+
+/**
+ * Ошибка «изъять больше аванса» (advance_return_too_big, ADR-0006). self = конфликт на самой
+ * записи из формы; иначе правка или удаление задним числом ломает более позднее изъятие.
+ */
+export function advanceReturnErrorText(details: Record<string, unknown>, self: boolean): string {
+  const advance = typeof details.advance_minor === "number" ? details.advance_minor : 0;
+  if (self) return `Изъять можно не больше аванса на эту дату: ${formatMoney(advance, "KZT")}.`;
+  const amount = typeof details.amount_minor === "number" ? formatMoney(details.amount_minor, "KZT") : "";
+  const date = typeof details.occurred_on === "string" ? formatDate(details.occurred_on) : "позже";
+  return (
+    `Не получится: изъятие аванса ${date}${amount ? ` на ${amount}` : ""} станет больше аванса на ту дату ` +
+    `(${formatMoney(advance, "KZT")}). Сначала измените или удалите это изъятие.`
+  );
 }

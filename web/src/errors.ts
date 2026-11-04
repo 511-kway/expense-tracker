@@ -25,7 +25,8 @@ const MESSAGES: Record<string, string> = {
   entry_type_not_supported: "Этот тип записи появится в следующей версии",
   entry_status_not_supported: "Черновики появятся вместе с быстрым вводом",
   debt_overpay: "Вернуть можно не больше текущего долга",
-  advance_return_too_big: "Нельзя вернуть больше, чем аванса на счёте",
+  advance_return_too_big: "Изъять можно не больше аванса на счёте на эту дату",
+  fee_too_big: "Комиссия должна быть меньше суммы пополнения",
   refund_too_big: "Возврат больше суммы исходной траты",
 };
 
