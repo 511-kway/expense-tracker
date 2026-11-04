@@ -4,6 +4,8 @@ import { supabase } from "../supabase";
 import { amountOrZero, formatMoney } from "../money";
 import { formatDate, todayInAlmaty } from "../dates";
 import { errorText } from "../errors";
+import { CURRENCIES, conversionFields, type ConversionInput } from "../currency";
+import { ConversionBlock, currencyLabel } from "./Conversion";
 
 type AccountType = "card" | "bank_account" | "cash";
 
@@ -23,7 +25,6 @@ export type AccountRow = {
 };
 
 const TYPE_LABELS: Record<AccountType, string> = { card: "Карта", bank_account: "Банковский счёт", cash: "Наличные" };
-const CURRENCIES = ["KZT", "USD", "EUR", "RUB", "TRY"];
 
 type ListState = { kind: "loading" } | { kind: "error" } | { kind: "ready"; rows: AccountRow[] };
 type Sheet = { kind: "closed" } | { kind: "create" } | { kind: "edit"; account: AccountRow };
@@ -148,10 +149,12 @@ function AccountItem({ account: a, onOpen }: { account: AccountRow; onOpen: () =
             <span className="swatch swatch--own" aria-hidden="true" />
             Свои <span className={`amount${a.own_minor < 0 ? " is-negative" : ""}`}>{formatMoney(a.own_minor, a.currency)}</span>
           </span>
-          <span>
-            <span className="swatch swatch--company" aria-hidden="true" />
-            Аванс <span className="amount">{formatMoney(a.advance_minor, "KZT")}</span>
-          </span>
+          {a.currency === "KZT" && (
+            <span>
+              <span className="swatch swatch--company" aria-hidden="true" />
+              Аванс <span className="amount">{formatMoney(a.advance_minor, "KZT")}</span>
+            </span>
+          )}
         </span>
       </button>
     </li>
@@ -188,10 +191,13 @@ function CreateAccountForm({ accountingStartDate, onDone }: { accountingStartDat
   const [startDate, setStartDate] = useState(today < accountingStartDate ? accountingStartDate : today);
   const [total, setTotal] = useState("");
   const [company, setCompany] = useState("");
+  const [conversion, setConversion] = useState<ConversionInput>({ method: "nbk", rate: "", kzt: "" });
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  // Валютный счёт без аванса (док 03, раздел 5): «из них компании» нет, стартовый остаток в валюте
+  // счёта плюс тенговый эквивалент тем же блоком пересчёта, что у записи (курс на дату старта).
   const foreign = currency !== "KZT";
-  const totalMinor = foreign ? 0 : amountOrZero(total);
+  const totalMinor = amountOrZero(total);
   const companyMinor = foreign ? 0 : amountOrZero(company);
   const preview = useOpeningPreview(totalMinor, companyMinor, currency);
 
@@ -202,6 +208,8 @@ function CreateAccountForm({ accountingStartDate, onDone }: { accountingStartDat
     if (totalMinor === null || companyMinor === null)
       return setFailure("Введите сумму цифрами, копейки не больше двух знаков.");
     if (!startDate) return setFailure("Выберите дату старта счёта.");
+    const conv = foreign && totalMinor > 0 ? conversionFields(currency, conversion) : {};
+    if (typeof conv === "string") return setFailure(conv);
     setBusy(true);
     const { error } = await supabase.rpc("create_account", {
       p_name: name,
@@ -212,6 +220,9 @@ function CreateAccountForm({ accountingStartDate, onDone }: { accountingStartDat
       p_start_date: startDate,
       p_total_minor: totalMinor,
       p_company_minor: companyMinor,
+      p_rate_source: conv.rate_source ?? null,
+      p_rate: conv.rate ?? null,
+      p_amount_kzt_minor: conv.amount_kzt_minor ?? null,
     });
     setBusy(false);
     if (error) return setFailure(accountErrorText(error));
@@ -256,7 +267,7 @@ function CreateAccountForm({ accountingStartDate, onDone }: { accountingStartDat
           <select id="acc-currency" value={currency} onChange={(e) => setCurrency(e.target.value)}>
             {CURRENCIES.map((c) => (
               <option key={c} value={c}>
-                {c === "KZT" ? "Тенге, KZT" : c}
+                {currencyLabel(c)}
               </option>
             ))}
           </select>
@@ -280,9 +291,23 @@ function CreateAccountForm({ accountingStartDate, onDone }: { accountingStartDat
       <fieldset className="opening">
         <legend>Остаток на дату старта</legend>
         {foreign ? (
-          <p className="field__hint">
-            Остаток валютного счёта пока можно завести только нулевым: тенговый эквивалент появится вместе с валютой.
-          </p>
+          <>
+            <MoneyField id="acc-total" label="Всего на счёте" value={total} onChange={setTotal} currency={currency} />
+            <p className="field__hint">
+              Аванс компании бывает только на тенговых счетах, поэтому всё на валютном счёте свои деньги.
+            </p>
+            {totalMinor !== null && totalMinor > 0 && (
+              <ConversionBlock
+                idPrefix="acc"
+                currency={currency}
+                amount={total}
+                date={startDate}
+                value={conversion}
+                onChange={setConversion}
+                verb="Тенговый эквивалент"
+              />
+            )}
+          </>
         ) : (
           <>
             <div className="account-form__row">
@@ -377,10 +402,12 @@ function EditAccountForm({ account: a, onDone }: { account: AccountRow; onDone: 
           <dt className="muted">Остаток</dt>
           <dd className="amount">{formatMoney(a.balance_minor, a.currency)}</dd>
         </div>
-        <div>
-          <dt className="muted">Аванс</dt>
-          <dd className="amount">{formatMoney(a.advance_minor, "KZT")}</dd>
-        </div>
+        {a.currency === "KZT" && (
+          <div>
+            <dt className="muted">Аванс</dt>
+            <dd className="amount">{formatMoney(a.advance_minor, "KZT")}</dd>
+          </div>
+        )}
         <div>
           <dt className="muted">Учёт с</dt>
           <dd>{formatDate(a.start_date)}</dd>
@@ -415,7 +442,7 @@ function EditAccountForm({ account: a, onDone }: { account: AccountRow; onDone: 
           {CURRENCIES.includes(a.currency) ? null : <option value={a.currency}>{a.currency}</option>}
           {CURRENCIES.map((c) => (
             <option key={c} value={c}>
-              {c === "KZT" ? "Тенге, KZT" : c}
+              {currencyLabel(c)}
             </option>
           ))}
         </select>

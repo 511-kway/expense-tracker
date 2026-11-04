@@ -58,3 +58,23 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  edge-functions:
+    name: edge functions (deno test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: supabase/functions
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.5.x
+
+      - run: deno fmt --check
+      - run: deno lint
+      - run: deno check fetch_rates/index.ts
+      # Тесты не ходят в сеть: HTTP к Нацбанку и кэш подменяются в handler_test.ts.
+      - run: deno test

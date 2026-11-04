@@ -132,7 +132,7 @@ select results_eq($$ select * from pg_temp.state('H1') $$,
   $$ values (8500000::bigint, 8500000::bigint, 0::bigint, 1500000::bigint) $$,
   'TC-REFUND-PARTIAL: half of the возврат покупки restores half of the advance and the debt');
 select is(public.refund_remaining(current_setting('test.exp')::uuid),
-  '{"parent_amount_minor": 3000000, "refunded_minor": 1500000, "remaining_minor": 1500000}'::jsonb,
+  '{"parent_amount_minor": 3000000, "refunded_minor": 1500000, "remaining_minor": 1500000, "currency": "KZT"}'::jsonb,
   'the server tells the form how much is still refundable');
 select is(pg_temp.error_of(format('select pg_temp.refund(%L, 1500001)', current_setting('test.exp'))) #- '{detail,entry_id}',
   jsonb_build_object('code', 'refund_too_big', 'detail', jsonb_build_object('occurred_on', '2026-11-05',

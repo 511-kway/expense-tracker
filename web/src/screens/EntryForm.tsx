@@ -25,6 +25,9 @@ import type { AccountRow } from "./Accounts";
 import type { CategoryRow } from "./Categories";
 import { refundParentOf, type RefundParent } from "./RefundForm";
 import { EffectPreview, useEntryPreview } from "./EntryPreview";
+import { ConversionBlock, CurrencySelect, useNbkRate } from "./Conversion";
+import { CURRENCIES, conversionFields, conversionFromEntry, type ConversionInput } from "../currency";
+import { currencySign } from "../money";
 
 type FormType =
   | "expense"
@@ -142,6 +145,8 @@ export function EntryForm(props: {
   const [adjMoney, setAdjMoney] = useState<Source>(entry?.adjustment_affects_advance ? "company" : "own");
   const [title, setTitle] = useState(entry?.title ?? "");
   const [comment, setComment] = useState(entry?.comment ?? "");
+  const [currency, setCurrency] = useState(entry?.currency ?? "KZT");
+  const [conversion, setConversion] = useState<ConversionInput>(conversionFromEntry(entry));
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -155,6 +160,21 @@ export function EntryForm(props: {
   const toAccount = toAccounts.find((a) => a.account_id === toAccountId);
   const isDebtAdjustment = type === "adjustment" && adjTarget !== "balance";
   const hasAccount = type !== "netting" && !isDebtAdjustment;
+  // Валюта (док 03, раздел 5): валютный счёт только в своей валюте и без аванса; у тенгового
+  // счёта трата, поступление и корректировка остатка в любой валюте; перевод в валюте счетов;
+  // деньги компании, погашение долга и взаимозачёт только в тенге.
+  const accountCurrency = hasAccount ? (account?.currency ?? "KZT") : "KZT";
+  const foreignAccount = accountCurrency !== "KZT";
+  const currencyOptions =
+    foreignAccount || type === "transfer"
+      ? [accountCurrency]
+      : type === "expense" || type === "income" || (type === "adjustment" && !isDebtAdjustment)
+        ? CURRENCIES
+        : ["KZT"];
+  const opCurrency = currencyOptions.length === 1 ? currencyOptions[0]! : currencyOptions.includes(currency) ? currency : "KZT";
+  // Деньги компании и погашение долга на валютном счёте сервер отклонит: пересчёт им не нужен.
+  const foreignAmount =
+    opCurrency !== "KZT" && !["company_topup", "company_advance_return", "settlement"].includes(type);
   const minDate = [
     hasAccount ? account?.start_date : undefined,
     type === "transfer" ? toAccount?.start_date : undefined,
@@ -219,11 +239,19 @@ export function EntryForm(props: {
     if (type === "expense" && !categoryId) return "Выберите категорию.";
     if (sourceNeeded && !source) return "Выберите, чьими деньгами оплачено.";
     if (!date) return "Выберите дату.";
+    if (type === "transfer" && foreignAccount && transferPurpose !== "move_own")
+      return "Между валютными счетами только перевод своих: аванс компании бывает только на тенговых счетах.";
+    if (type === "adjustment" && !isDebtAdjustment && foreignAccount && adjMoney === "company")
+      return "У валютного счёта нет аванса: корректировка меняет только остаток.";
+    const conv = conversionFields(opCurrency, conversion);
+    if (typeof conv === "string") return conv;
 
     const payload: Record<string, unknown> = {
       type,
       occurred_on: date,
       amount_minor: parsed.minor,
+      currency: opCurrency,
+      ...conv,
       account_id: hasAccount ? accountId : null,
       category_id: type === "expense" || type === "income" ? categoryId || null : null,
       comment: comment.trim() || null,
@@ -261,7 +289,12 @@ export function EntryForm(props: {
   const draft = build();
   // Пока сервер считает суммы пополнения или решает, нужен ли вопрос «чьими деньгами», предпросмотр
   // ждёт с прошлым ответом на экране (иначе мелькнёт source_required или пропадёт панель).
-  const waiting = (type === "company_topup" && topup.state === "pending") || (asksSource && !!accountId && !!date && !sourceCheck);
+  // Со способом «курс Нацбанка» предпросмотр ждёт, пока fetch_rates положит курс в кэш.
+  const nbk = useNbkRate(foreignAmount && conversion.method === "nbk", opCurrency, date);
+  const waiting =
+    (type === "company_topup" && topup.state === "pending") ||
+    (asksSource && !!accountId && !!date && !sourceCheck) ||
+    (foreignAmount && conversion.method === "nbk" && nbk.state !== "ready");
   const preview = useEntryPreview(waiting ? "wait" : typeof draft === "string" ? null : draft.payload, entry?.entry_id);
 
   async function submit(e: FormEvent) {
@@ -308,7 +341,7 @@ export function EntryForm(props: {
           <p className="muted">
             {entry && entry.refunded_minor > 0 ? (
               <>
-                По трате уже вернули <span className="amount">{formatMoney(entry.refunded_minor, "KZT")}</span>.
+                По трате уже вернули <span className="amount">{formatMoney(entry.refunded_minor, entry.currency)}</span>.
               </>
             ) : (
               "Магазин вернул деньги за эту покупку, полностью или частично?"
@@ -378,20 +411,42 @@ export function EntryForm(props: {
 
       <div className="field">
         <label htmlFor="entry-amount">{type === "company_topup" ? FEE_STYLES[feeStyle].first : "Сумма"}</label>
-        <div className="money-input money-input--large">
-          <input
-            id="entry-amount"
-            type="text"
-            inputMode="decimal"
-            autoComplete="off"
-            placeholder="0"
-            value={amount}
-            onChange={(e) => setAmount(formatAmountInput(e.target.value))}
-            autoFocus={!entry}
-          />
-          <span aria-hidden="true">₸</span>
+        <div className="amount-row">
+          <div className="money-input money-input--large">
+            <input
+              id="entry-amount"
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              placeholder="0"
+              value={amount}
+              onChange={(e) => setAmount(formatAmountInput(e.target.value))}
+              autoFocus={!entry}
+            />
+            {currencyOptions.length === 1 && <span aria-hidden="true">{currencySign(opCurrency)}</span>}
+          </div>
+          {currencyOptions.length > 1 && (
+            <CurrencySelect id="entry-currency" value={opCurrency} options={currencyOptions} onChange={setCurrency} />
+          )}
         </div>
       </div>
+      {foreignAccount && type !== "transfer" && currencyOptions.length === 1 && opCurrency !== "KZT" && (
+        <p className="field__hint">
+          Счёт в {opCurrency}: остаток в {opCurrency}, аванс и долг с компанией считаются по тенговому эквиваленту.
+        </p>
+      )}
+      {foreignAmount && (
+        <ConversionBlock
+          idPrefix="entry"
+          currency={opCurrency}
+          amount={amount}
+          date={date}
+          value={conversion}
+          onChange={setConversion}
+          verb={conversionVerb(type, foreignAccount, adjSign)}
+          nbk={nbk}
+        />
+      )}
 
       {type === "adjustment" && (
         <AdjustmentTop
@@ -497,7 +552,7 @@ export function EntryForm(props: {
           <fieldset className="choice">
             <legend>Назначение</legend>
             <div className="choice__options choice__options--grid">
-              {PURPOSE_ORDER.map((p) => (
+              {PURPOSE_ORDER.filter((p) => !foreignAccount || p === "move_own").map((p) => (
                 <ChoiceOption
                   key={p}
                   name="entry-transfer-purpose"
@@ -526,7 +581,7 @@ export function EntryForm(props: {
             )}
           </fieldset>
 
-          <MoneyField id="entry-fee" label="Комиссия, если была" value={fee} onChange={setFee} />
+          <MoneyField id="entry-fee" label="Комиссия, если была" value={fee} onChange={setFee} currency={opCurrency} />
           {hasFee && (
             <fieldset className="choice">
               <legend>Кто платит комиссию</legend>
@@ -617,13 +672,15 @@ export function EntryForm(props: {
                 label="Свои"
                 swatch="own"
               />
-              <ChoiceOption
-                name="entry-adjustment-money"
-                checked={adjMoney === "company"}
-                onChange={() => setAdjMoney("company")}
-                label="Деньги компании"
-                swatch="company"
-              />
+              {!foreignAccount && (
+                <ChoiceOption
+                  name="entry-adjustment-money"
+                  checked={adjMoney === "company"}
+                  onChange={() => setAdjMoney("company")}
+                  label="Деньги компании"
+                  swatch="company"
+                />
+              )}
             </div>
             <p className="field__hint">
               {adjMoney === "own"
@@ -916,6 +973,15 @@ function AdjustmentTop(props: {
       </fieldset>
     </>
   );
+}
+
+/** Что тенговый эквивалент значит для этой записи: у тенгового счёта это движение остатка. */
+function conversionVerb(type: FormType, foreignAccount: boolean, sign: 1 | -1 | null): string {
+  if (foreignAccount) return "Тенговый эквивалент";
+  if (type === "expense") return "Со счёта спишется";
+  if (type === "income") return "На счёт придёт";
+  if (type === "adjustment") return sign === -1 ? "Остаток уменьшится на" : sign === 1 ? "Остаток вырастет на" : "В тенге";
+  return "В тенге";
 }
 
 /** Подпись счёта: у перевода «откуда», у погашения долга откуда ушли или куда пришли деньги. */

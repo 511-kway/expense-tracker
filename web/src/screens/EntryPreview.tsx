@@ -67,7 +67,8 @@ export function EffectPreview(props: {
     ...(props.accountNames ?? new Map<string, string>()),
     ...state.data.accounts.map((a) => [a.account_id, a.name] as const),
   ]);
-  const notices = warningLines(state.data.warnings ?? [], names);
+  const currencies = new Map(state.data.accounts.map((a) => [a.account_id, a.currency] as const));
+  const notices = warningLines(state.data.warnings ?? [], names, currencies);
   return (
     <section className={`effect${busy}`} aria-live="polite" aria-labelledby="effect-title" aria-busy={state.pending}>
       <h3 id="effect-title" className="effect__title">

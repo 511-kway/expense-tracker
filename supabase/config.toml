@@ -405,6 +405,11 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# Курс Нацбанка на дату с кэшем в fx_rates (тикет 14). Только с JWT пользователя; внутри ещё
+# проверка is_allowed().
+[functions.fetch_rates]
+verify_jwt = true
+
 [analytics]
 enabled = true
 port = 54327

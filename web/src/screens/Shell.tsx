@@ -56,9 +56,10 @@ export function Shell({
     setToast(result.message);
     setRevision((r) => r + 1);
     if (result.warnings.length === 0) return setNotices([]);
-    const { data } = await supabase.from("accounts").select("id, name");
+    const { data } = await supabase.from("accounts").select("id, name, currency");
     const names = new Map((data ?? []).map((a) => [a.id as string, a.name as string]));
-    setNotices(warningLines(result.warnings, names));
+    const currencies = new Map((data ?? []).map((a) => [a.id as string, a.currency as string]));
+    setNotices(warningLines(result.warnings, names, currencies));
   }
 
   useEffect(() => {

@@ -122,8 +122,8 @@ select is(pg_temp.error_of($$ select public.create_account(p_name => 'Переб
   'company part cannot exceed the total');
 select is(pg_temp.error_of($$ select public.create_account(p_name => 'Доллары', p_type => 'card', p_currency => 'USD',
             p_start_date => '2026-11-02', p_total_minor => 100) $$),
-  '{"code": "foreign_opening_not_supported", "detail": {"currency": "USD"}}'::jsonb,
-  'opening balance of a non-tenge account waits for currency support');
+  '{"code": "missing_required", "detail": {"field": "rate_source"}}'::jsonb,
+  'opening balance of a non-tenge account needs a way to get its tenge equivalent (ticket 14)');
 
 -- Свои деньги как разница в форме считает сервер, с теми же проверками, что и создание.
 select is(public.preview_account_opening(p_total_minor => 15000000, p_company_minor => 10000000),

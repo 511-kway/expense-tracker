@@ -1,4 +1,4 @@
-import { formatMoney } from "./money";
+import { formatMoney, formatRate } from "./money";
 import { formatDate } from "./dates";
 
 export type EntryType =
@@ -54,6 +54,11 @@ export type EntryRow = {
   parent_title: string | null;
   /** Трата: сколько по ней записано возвратов покупки. */
   refunded_minor: number;
+  /** Валюта (тикет 14): тенговый эквивалент, курс и способ пересчёта; дельты остатка в валюте счёта. */
+  amount_kzt_minor: number;
+  rate: number | null;
+  rate_source: "nbk" | "manual" | "derived" | null;
+  account_currency: string | null;
 };
 
 export type AdjustmentTarget = "balance" | DebtSide;
@@ -109,7 +114,7 @@ export const TRANSFER_PURPOSES: Record<TransferPurpose, string> = {
 };
 
 export const ENTRY_COLUMNS =
-  "entry_id, type, status, occurred_on, amount_minor, currency, account_id, account_name, category_id, category_name, purpose, source, comment, title, balance_delta_minor, advance_delta_minor, company_owes_me_delta_minor, i_owe_company_delta_minor, fee_minor, fee_payer, transfer_purpose, to_account_id, to_account_name, to_balance_delta_minor, to_advance_delta_minor, settlement_direction, adjustment_target, adjustment_sign, adjustment_mode, adjustment_affects_advance, parent_entry_id, parent_occurred_on, parent_amount_minor, parent_title, refunded_minor";
+  "entry_id, type, status, occurred_on, amount_minor, currency, account_id, account_name, category_id, category_name, purpose, source, comment, title, balance_delta_minor, advance_delta_minor, company_owes_me_delta_minor, i_owe_company_delta_minor, fee_minor, fee_payer, transfer_purpose, to_account_id, to_account_name, to_balance_delta_minor, to_advance_delta_minor, settlement_direction, adjustment_target, adjustment_sign, adjustment_mode, adjustment_affects_advance, parent_entry_id, parent_occurred_on, parent_amount_minor, parent_title, refunded_minor, amount_kzt_minor, rate, rate_source, account_currency";
 
 /** Предупреждение из ответа create_entry / update_entry / delete_entry. */
 export type EntryWarning =
@@ -143,20 +148,38 @@ export function entryTitle(
   return e.title ?? e.category_name ?? TYPE_TITLES[e.type];
 }
 
+/**
+ * Пересчёт валютной записи, мелко в ленте: у тенгового счёта сумма в валюте и курс (остаток
+ * списан в тенге), у валютного счёта тенговый эквивалент для аванса и долга. Тенге: null.
+ */
+export function conversionLabel(
+  e: Pick<EntryRow, "currency" | "amount_minor" | "amount_kzt_minor" | "rate" | "rate_source" | "account_currency">,
+): string | null {
+  if (e.currency === "KZT" || !e.rate_source) return null;
+  const how =
+    e.rate_source === "derived"
+      ? null
+      : `по ${e.rate_source === "nbk" ? "курсу Нацбанка" : "своему курсу"} ${e.rate === null ? "" : formatRate(e.rate)}`.trim();
+  if (e.account_currency !== null && e.account_currency !== "KZT")
+    return [`в тенге ${formatMoney(e.amount_kzt_minor, "KZT")}`, how ?? "введено вручную"].join(" ");
+  return how ? `${formatMoney(e.amount_minor, e.currency)} ${how}` : `${formatMoney(e.amount_minor, e.currency)}, в тенге введено вручную`;
+}
+
 /** Ссылка возврата покупки на трату, мелко в ленте. */
-export function refundLabel(e: Pick<EntryRow, "parent_occurred_on" | "parent_amount_minor">): string {
+export function refundLabel(e: Pick<EntryRow, "parent_occurred_on" | "parent_amount_minor" | "currency">): string {
   if (!e.parent_occurred_on || e.parent_amount_minor === null) return "по трате";
-  return `по трате ${formatDate(e.parent_occurred_on)} на ${formatMoney(e.parent_amount_minor, "KZT")}`;
+  // Возврат покупки в валюте своей траты.
+  return `по трате ${formatDate(e.parent_occurred_on)} на ${formatMoney(e.parent_amount_minor, e.currency)}`;
 }
 
 /**
  * Ошибка «возврат покупки больше невозвращённого» (refund_too_big, ADR-0006). self = конфликт на
  * самом возврате из формы; иначе правка траты делает её меньше уже записанного возврата.
  */
-export function refundTooBigErrorText(details: Record<string, unknown>, self: boolean): string {
-  const available = formatMoney(typeof details.available_minor === "number" ? details.available_minor : 0, "KZT");
+export function refundTooBigErrorText(details: Record<string, unknown>, self: boolean, currency = "KZT"): string {
+  const available = formatMoney(typeof details.available_minor === "number" ? details.available_minor : 0, currency);
   if (self) return `Вернуть можно не больше ${available}: столько по этой трате ещё не вернули.`;
-  const amount = typeof details.amount_minor === "number" ? formatMoney(details.amount_minor, "KZT") : "";
+  const amount = typeof details.amount_minor === "number" ? formatMoney(details.amount_minor, currency) : "";
   const date = typeof details.occurred_on === "string" ? formatDate(details.occurred_on) : "позже";
   return (
     `Не получится: возврат покупки ${date}${amount ? ` на ${amount}` : ""} станет больше суммы траты ` +
@@ -168,7 +191,11 @@ export function refundTooBigErrorText(details: Record<string, unknown>, self: bo
  * Предупреждения → строки для экрана. Минус остатка показывается один раз на счёт (первое
  * уход в минус по хронологии), дубль один раз на запись.
  */
-export function warningLines(warnings: EntryWarning[], accountNames: ReadonlyMap<string, string>): string[] {
+export function warningLines(
+  warnings: EntryWarning[],
+  accountNames: ReadonlyMap<string, string>,
+  accountCurrencies: ReadonlyMap<string, string> = new Map(),
+): string[] {
   const lines: string[] = [];
   const seen = new Set<string>();
   for (const w of warnings) {
@@ -178,7 +205,7 @@ export function warningLines(warnings: EntryWarning[], accountNames: ReadonlyMap
       seen.add(`neg:${n.account_id}`);
       const name = accountNames.get(n.account_id) ?? "счёта";
       lines.push(
-        `Остаток «${name}» ушёл в минус ${formatDate(n.occurred_on)}: ${formatMoney(n.balance_minor, "KZT")}. ` +
+        `Остаток «${name}» ушёл в минус ${formatDate(n.occurred_on)}: ${formatMoney(n.balance_minor, accountCurrencies.get(n.account_id) ?? "KZT")}. ` +
           "Кредитов в учёте нет, похоже, пропущена запись.",
       );
     } else if (w.code === "possible_duplicate") {

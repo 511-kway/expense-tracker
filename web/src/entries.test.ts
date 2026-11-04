@@ -10,6 +10,7 @@ import {
   formatSigned,
   nettingTooBigErrorText,
   refundLabel,
+  conversionLabel,
   refundTooBigErrorText,
   warningLines,
 } from "./entries";
@@ -25,6 +26,18 @@ describe("warningLines", () => {
       ),
     ).toEqual([
       "Остаток «Kaspi Gold» ушёл в минус 2 ноября 2026: −40\u00a0000\u00a0₸. Кредитов в учёте нет, похоже, пропущена запись.",
+    ]);
+  });
+
+  it("shows the balance of a non-tenge account in its currency", () => {
+    expect(
+      warningLines(
+        [{ code: "negative_balance", entry_id: "e1", occurred_on: "2026-11-02", account_id: "a1", balance_minor: -500 }],
+        names,
+        new Map([["a1", "TRY"]]),
+      ),
+    ).toEqual([
+      "Остаток «Kaspi Gold» ушёл в минус 2 ноября 2026: −5\u00a0₺. Кредитов в учёте нет, похоже, пропущена запись.",
     ]);
   });
 
@@ -62,10 +75,16 @@ describe("entryTitle", () => {
 
 describe("refundLabel", () => {
   it("links a возврат покупки to its expense", () => {
-    expect(refundLabel({ parent_occurred_on: "2026-11-02", parent_amount_minor: 3000000 })).toBe(
+    expect(refundLabel({ parent_occurred_on: "2026-11-02", parent_amount_minor: 3000000, currency: "KZT" })).toBe(
       "по трате 2 ноября 2026 на 30\u00a0000\u00a0₸",
     );
-    expect(refundLabel({ parent_occurred_on: null, parent_amount_minor: null })).toBe("по трате");
+    expect(refundLabel({ parent_occurred_on: null, parent_amount_minor: null, currency: "KZT" })).toBe("по трате");
+  });
+
+  it("names the expense in its own currency", () => {
+    expect(refundLabel({ parent_occurred_on: "2026-11-02", parent_amount_minor: 10000, currency: "USD" })).toBe(
+      "по трате 2 ноября 2026 на $100",
+    );
   });
 });
 
@@ -237,5 +256,25 @@ describe("adjustmentLabel", () => {
     expect(adjustmentLabel({ adjustment_target: "i_owe_company", adjustment_mode: "plug_hidden", adjustment_affects_advance: false })).toBe(
       "сторона «я должен компании»",
     );
+  });
+});
+
+describe("conversionLabel", () => {
+  const base = { currency: "USD", amount_minor: 10000, amount_kzt_minor: 4800000, rate: 480, account_currency: "KZT" };
+
+  it("a dollar entry on a tenge card shows the dollars and the rate", () => {
+    expect(conversionLabel({ ...base, rate_source: "nbk" })).toBe("$100 по курсу Нацбанка 480");
+    expect(conversionLabel({ ...base, rate_source: "manual", rate: 480.015 })).toBe("$100 по своему курсу 480,015");
+    expect(conversionLabel({ ...base, rate_source: "derived" })).toBe("$100, в тенге введено вручную");
+  });
+
+  it("an entry on a non-tenge account shows its tenge equivalent", () => {
+    expect(
+      conversionLabel({ ...base, currency: "TRY", amount_minor: 50000, amount_kzt_minor: 455000, rate: 9.1, rate_source: "nbk", account_currency: "TRY" }),
+    ).toBe("в тенге 4 550 ₸ по курсу Нацбанка 9,1");
+  });
+
+  it("tenge entries need no label", () => {
+    expect(conversionLabel({ ...base, currency: "KZT", rate_source: null })).toBeNull();
   });
 });

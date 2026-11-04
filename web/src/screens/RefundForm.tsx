@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { supabase } from "../supabase";
-import { formatAmountInput, formatMoney, minorToAmountInput, parseAmountInput } from "../money";
+import { currencySign, formatAmountInput, formatMoney, minorToAmountInput, parseAmountInput } from "../money";
 import { formatDate, todayInAlmaty } from "../dates";
 import { errorText } from "../errors";
 import { entryTitle, errorDetails, refundTooBigErrorText, type EntryRow, type EntryWarning } from "../entries";
@@ -15,6 +15,8 @@ export type RefundParent = {
   account_name: string | null;
   occurred_on: string;
   amount_minor: number;
+  /** Валюта траты: возврат покупки в ней же и по её курсу. */
+  currency: string;
 };
 
 /** Трата из строки ленты: сама трата или трата возврата покупки (поля parent_* и унаследованные). */
@@ -27,6 +29,7 @@ export function refundParentOf(e: EntryRow): RefundParent | null {
       account_name: e.account_name,
       occurred_on: e.occurred_on,
       amount_minor: e.amount_minor,
+      currency: e.currency,
     };
   if (e.type === "refund" && e.parent_entry_id && e.parent_occurred_on && e.parent_amount_minor !== null)
     return {
@@ -36,6 +39,7 @@ export function refundParentOf(e: EntryRow): RefundParent | null {
       account_name: e.account_name,
       occurred_on: e.parent_occurred_on,
       amount_minor: e.parent_amount_minor,
+      currency: e.currency,
     };
   return null;
 }
@@ -98,7 +102,8 @@ export function RefundForm(props: {
   const draft = build();
   const preview = useEntryPreview(typeof draft === "string" ? null : draft.payload, refund?.entry_id);
   const isSelf = (d: Record<string, unknown>, amountMinor: number) =>
-    refund ? d.entry_id === refund.entry_id : d.occurred_on === date && d.amount_minor === amountMinor;
+    d.entry_id === undefined ||
+    (refund ? d.entry_id === refund.entry_id : d.occurred_on === date && d.amount_minor === amountMinor);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -112,7 +117,7 @@ export function RefundForm(props: {
       : await supabase.rpc("create_entry", { p_payload: payload });
     setBusy(false);
     if (error)
-      return setFailure(refundErrorText(error, (d) => isSelf(d, amountMinor)));
+      return setFailure(refundErrorText(error, (d) => isSelf(d, amountMinor), parent.currency));
     props.onSaved({
       message: refund ? "Запись сохранена" : "Возврат покупки записан",
       warnings: ((data as { warnings?: EntryWarning[] }).warnings ?? []) as EntryWarning[],
@@ -135,7 +140,7 @@ export function RefundForm(props: {
       <div className="refund-parent">
         <p className="refund-parent__title">
           {entryTitle({ type: "expense", title: parent.title, category_name: parent.category_name })}
-          <span className="amount">{formatMoney(parent.amount_minor, "KZT")}</span>
+          <span className="amount">{formatMoney(parent.amount_minor, parent.currency)}</span>
         </p>
         <p className="muted">
           Трата {formatDate(parent.occurred_on)}
@@ -155,9 +160,9 @@ export function RefundForm(props: {
               "По этой трате уже всё вернули."
             ) : (
               <>
-                Можно вернуть до <span className="amount">{formatMoney(remaining.remaining_minor, "KZT")}</span>
+                Можно вернуть до <span className="amount">{formatMoney(remaining.remaining_minor, parent.currency)}</span>
                 {remaining.refunded_minor > 0 && (
-                  <span className="muted">, уже вернули {formatMoney(remaining.refunded_minor, "KZT")}</span>
+                  <span className="muted">, уже вернули {formatMoney(remaining.refunded_minor, parent.currency)}</span>
                 )}
                 .
               </>
@@ -179,7 +184,7 @@ export function RefundForm(props: {
             onChange={(e) => setAmount(formatAmountInput(e.target.value))}
             autoFocus={!refund}
           />
-          <span aria-hidden="true">₸</span>
+          <span aria-hidden="true">{currencySign(parent.currency)}</span>
         </div>
         {remaining !== null && remaining !== "error" && !nothingLeft && (
           <button
@@ -187,11 +192,13 @@ export function RefundForm(props: {
             type="button"
             onClick={() => setAmount(minorToAmountInput(remaining.remaining_minor))}
           >
-            Вернули всё: {formatMoney(remaining.remaining_minor, "KZT")}
+            Вернули всё: {formatMoney(remaining.remaining_minor, parent.currency)}
           </button>
         )}
         <p className="field__hint">
           Возврат откатит трату пропорционально: аванс и долг с компанией вернутся в той же доле, что сумма.
+          {parent.currency !== "KZT" &&
+            " Тенговый эквивалент возврата считается по курсу траты; если банк вернул по другому курсу, разницу запишите корректировкой."}
         </p>
       </div>
 
@@ -207,7 +214,7 @@ export function RefundForm(props: {
 
       <EffectPreview
         state={preview}
-        errorText={(error) => refundErrorText(error, (d) => typeof draft !== "string" && isSelf(d, draft.amountMinor))}
+        errorText={(error) => refundErrorText(error, (d) => typeof draft !== "string" && isSelf(d, draft.amountMinor), parent.currency)}
       />
 
       <div className="account-form__actions">
@@ -247,9 +254,12 @@ function maxDate(d: string): string {
 function refundErrorText(
   error: { message?: string; details?: string | null },
   isSelf: (d: Record<string, unknown>) => boolean,
+  currency: string,
 ): string {
   const d = errorDetails(error);
-  if (error.message === "refund_too_big") return refundTooBigErrorText(d, isSelf(d));
+  // Проверка до пересчёта (валютная трата, без entry_id) считает в валюте траты, пересчёт в тенге.
+  if (error.message === "refund_too_big")
+    return refundTooBigErrorText(d, isSelf(d), d.entry_id === undefined ? currency : "KZT");
   if (error.message === "refund_before_expense" && typeof d.parent_occurred_on === "string")
     return `Возврат покупки не может быть раньше траты, ${formatDate(d.parent_occurred_on)}.`;
   return errorText(error);

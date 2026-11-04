@@ -294,8 +294,8 @@ select is(pg_temp.error_of($$ select public.create_entry(jsonb_build_object('typ
   'amounts are whole minor units only');
 select is(pg_temp.error_of($$ select public.create_entry(jsonb_build_object('type', 'income',
     'occurred_on', '2026-11-02', 'amount_minor', 100, 'currency', 'USD', 'account_id', pg_temp.acc('H1'))) $$),
-  '{"code": "foreign_amount_not_supported", "detail": {"currency": "USD", "account_currency": "KZT"}}'::jsonb,
-  'amounts in another currency wait for currency support');
+  '{"code": "missing_required", "detail": {"field": "rate_source"}}'::jsonb,
+  'an amount in another currency needs a way to get the tenge equivalent (ticket 14)');
 select is(pg_temp.error_of($$ select public.create_entry(jsonb_build_object('type', 'gift',
     'occurred_on', '2026-11-02', 'amount_minor', 100, 'account_id', pg_temp.acc('H1'))) $$),
   '{"code": "field_invalid", "detail": {"field": "type"}}'::jsonb,

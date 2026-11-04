@@ -70,3 +70,33 @@ export function minorToAmountInput(minor: number): string {
   const major = (minor - minorPart) / 100;
   return formatAmountInput(minorPart === 0 ? String(major) : `${major},${String(minorPart).padStart(2, "0")}`);
 }
+
+/** Знак валюты, как его показывает formatMoney: «₸», «$», иначе ISO-код. */
+export function currencySign(currency: string): string {
+  return PREFIX_SIGNS[currency] ?? SUFFIX_SIGNS[currency] ?? currency;
+}
+
+export type ParsedRate = { ok: true; rate: string } | { ok: false; error: AmountInputError };
+
+/**
+ * Текст поля курса → десятичная строка для сервера («453,87» → "453.87"), без float: курс
+ * numeric(18,8), не больше 8 знаков после запятой, больше нуля.
+ */
+export function parseRateInput(text: string): ParsedRate {
+  const digits = compact(text);
+  if (digits === "") return { ok: false, error: "empty" };
+  const match = /^(\d+)(?:[.,](\d*))?$/.exec(digits);
+  if (!match) return { ok: false, error: "invalid" };
+  const whole = (match[1] ?? "").replace(/^0+(?=\d)/, "");
+  const fraction = (match[2] ?? "").replace(/0+$/, "");
+  if ((match[2] ?? "").length > 8) return { ok: false, error: "too_many_decimals" };
+  if (/^0*$/.test(whole + fraction)) return { ok: false, error: "invalid" };
+  return { ok: true, rate: fraction ? `${whole}.${fraction}` : whole };
+}
+
+/** Курс с сервера (строка или число из numeric) → «453,87», «1 234,5»: без лишних нулей. */
+export function formatRate(rate: string | number): string {
+  const [whole = "", fraction = ""] = String(rate).split(".");
+  const trimmed = fraction.replace(/0+$/, "");
+  return `${groupThousands(whole)}${trimmed ? `,${trimmed}` : ""}`;
+}

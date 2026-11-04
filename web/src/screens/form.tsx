@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { formatAmountInput } from "../money";
+import { currencySign, formatAmountInput } from "../money";
 
 /** Лист формы: снизу на телефоне, панелью справа на десктопе. Esc и «Закрыть» закрывают. */
 export function SheetDialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
@@ -40,6 +40,7 @@ export function MoneyField(props: {
   side?: "own" | "company";
   value: string;
   onChange: (v: string) => void;
+  currency?: string;
 }) {
   return (
     <div className="field">
@@ -57,7 +58,7 @@ export function MoneyField(props: {
           value={props.value}
           onChange={(e) => props.onChange(formatAmountInput(e.target.value))}
         />
-        <span aria-hidden="true">₸</span>
+        <span aria-hidden="true">{currencySign(props.currency ?? "KZT")}</span>
       </div>
     </div>
   );

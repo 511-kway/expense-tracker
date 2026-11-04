@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { amountOrZero, formatAmountInput, formatMoney, minorToAmountInput, parseAmountInput } from "./money";
+import {
+  amountOrZero,
+  currencySign,
+  formatAmountInput,
+  formatMoney,
+  formatRate,
+  minorToAmountInput,
+  parseAmountInput,
+  parseRateInput,
+} from "./money";
 
 const NB = " ";
 
@@ -96,5 +105,38 @@ describe("minorToAmountInput", () => {
     expect(minorToAmountInput(150050)).toBe("1\u00a0500,50");
     expect(minorToAmountInput(5)).toBe("0,05");
     expect(parseAmountInput(minorToAmountInput(150050))).toEqual({ ok: true, minor: 150050 });
+  });
+});
+
+describe("parseRateInput", () => {
+  it("turns a typed rate into a decimal string for the server, comma or dot, no float", () => {
+    expect(parseRateInput("453,87")).toEqual({ ok: true, rate: "453.87" });
+    expect(parseRateInput(" 1 234.5 ")).toEqual({ ok: true, rate: "1234.5" });
+    expect(parseRateInput("0,00587333")).toEqual({ ok: true, rate: "0.00587333" });
+    expect(parseRateInput("480")).toEqual({ ok: true, rate: "480" });
+  });
+
+  it("rejects empty, zero, letters and more than 8 decimals", () => {
+    expect(parseRateInput("")).toEqual({ ok: false, error: "empty" });
+    expect(parseRateInput("0,000")).toEqual({ ok: false, error: "invalid" });
+    expect(parseRateInput("4,8,1")).toEqual({ ok: false, error: "invalid" });
+    expect(parseRateInput("1,123456789")).toEqual({ ok: false, error: "too_many_decimals" });
+  });
+});
+
+describe("formatRate", () => {
+  it("shows a rate from the server with a comma and without trailing zeros", () => {
+    expect(formatRate("453.87000000")).toBe("453,87");
+    expect(formatRate("480")).toBe("480");
+    expect(formatRate(480.015)).toBe("480,015");
+    expect(formatRate("1234.5")).toBe(`1${NB}234,5`);
+  });
+});
+
+describe("currencySign", () => {
+  it("names the currency the way amounts show it", () => {
+    expect(currencySign("KZT")).toBe("₸");
+    expect(currencySign("USD")).toBe("$");
+    expect(currencySign("CNY")).toBe("CNY");
   });
 });

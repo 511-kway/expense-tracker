@@ -9,6 +9,7 @@ import {
   adjustmentLabel,
   entryTitle,
   refundLabel,
+  conversionLabel,
   formatSigned,
   type EntryRow,
 } from "../entries";
@@ -94,14 +95,13 @@ export function EntryItem({ entry: e, onEdit }: { entry: EntryRow; onEdit?: () =
   const amount =
     e.type === "transfer" || e.type === "netting"
       ? formatMoney(e.amount_minor, e.currency)
-      : formatSigned(
-          e.balance_delta_minor !== 0
-      ? e.balance_delta_minor
-      : e.company_owes_me_delta_minor !== 0
-        ? e.company_owes_me_delta_minor
-        : e.i_owe_company_delta_minor,
-          e.currency,
-        );
+      : e.balance_delta_minor !== 0
+        ? // Остаток двигается в валюте счёта: тенговая карта списывает тенговый эквивалент.
+          formatSigned(e.balance_delta_minor, e.account_currency ?? e.currency)
+        : formatSigned(
+            e.company_owes_me_delta_minor !== 0 ? e.company_owes_me_delta_minor : e.i_owe_company_delta_minor,
+            "KZT",
+          );
   const content: ReactNode = (
     <>
       <span className="entry__head">
@@ -127,6 +127,8 @@ function meta(e: EntryRow): string {
     parts.push(`с «${e.account_name ?? "счёта"}» на «${e.to_account_name ?? "счёт"}»`);
     if (e.transfer_purpose) parts.push(TRANSFER_PURPOSES[e.transfer_purpose].toLowerCase());
   } else if (e.account_name) parts.push(e.account_name);
+  const conversion = conversionLabel(e);
+  if (conversion) parts.push(conversion);
   if (e.type === "settlement" && e.settlement_direction)
     parts.push(SETTLEMENT_DIRECTIONS[e.settlement_direction].toLowerCase());
   if (e.type === "netting") parts.push("обе стороны долга, без движения денег");
