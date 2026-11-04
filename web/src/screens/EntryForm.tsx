@@ -4,12 +4,16 @@ import { formatAmountInput, formatMoney, minorToAmountInput, parseAmountInput } 
 import { formatDate, todayInAlmaty } from "../dates";
 import { errorText } from "../errors";
 import {
+  DEBT_SIDES,
   SETTLEMENT_DIRECTIONS,
   TRANSFER_PURPOSES,
   advanceReturnErrorText,
+  debtBelowZeroErrorText,
   debtOverpayErrorText,
   errorDetails,
   nettingTooBigErrorText,
+  type AdjustmentMode,
+  type AdjustmentTarget,
   type EntryRow,
   type EntryWarning,
   type SettlementDirection,
@@ -26,7 +30,8 @@ type FormType =
   | "company_topup"
   | "company_advance_return"
   | "settlement"
-  | "netting";
+  | "netting"
+  | "adjustment";
 type FeeStyle = "arrived_fee" | "sent_fee" | "sent_arrived";
 type Purpose = "personal" | "work";
 type Source = "own" | "company";
@@ -39,6 +44,7 @@ const FORM_TYPES: FormType[] = [
   "company_advance_return",
   "settlement",
   "netting",
+  "adjustment",
 ];
 
 const SAVED: Record<FormType, string> = {
@@ -49,6 +55,7 @@ const SAVED: Record<FormType, string> = {
   company_advance_return: "Изъятие записано",
   settlement: "Погашение долга записано",
   netting: "Взаимозачёт записан",
+  adjustment: "Корректировка записана",
 };
 
 const SUBMIT: Record<FormType, string> = {
@@ -59,6 +66,7 @@ const SUBMIT: Record<FormType, string> = {
   company_advance_return: "Записать изъятие",
   settlement: "Записать погашение",
   netting: "Записать взаимозачёт",
+  adjustment: "Записать корректировку",
 };
 
 /** Три способа ввести комиссию пополнения: какие два числа известны. Суммы считает сервер. */
@@ -82,7 +90,8 @@ export type SaveResult = { message: string; warnings: EntryWarning[] };
 
 /**
  * Форма записи (док 04, 4.2): трата, поступление, перевод, пополнение от компании, изъятие
- * аванса, погашение долга (счёт обязателен) и взаимозачёт (без счёта). У перевода «куда» без счёта «откуда» и только той же валюты, назначение и комиссия.
+ * аванса, погашение долга (счёт обязателен), взаимозачёт (без счёта) и корректировка (остаток
+ * счёта, с авансом или без, скрытая или в разрезах трат; или сторона долга без счёта). У перевода «куда» без счёта «откуда» и только той же валюты, назначение и комиссия.
  * Клиент собирает ввод и зовёт create_entry / update_entry; сплит, источник по умолчанию,
  * суммы пополнения с комиссией и проверки делает сервер. Вопрос «чьими деньгами» только у
  * личной траты, когда сервер говорит, что на счёте на эту дату есть аванс.
@@ -120,6 +129,12 @@ export function EntryForm(props: {
   const [transferPurpose, setTransferPurpose] = useState<TransferPurpose | null>(entry?.transfer_purpose ?? null);
   const [fee, setFee] = useState(isTransfer && entry?.fee_minor ? minorToAmountInput(entry.fee_minor) : "");
   const [direction, setDirection] = useState<SettlementDirection | null>(entry?.settlement_direction ?? null);
+  const [adjTarget, setAdjTarget] = useState<AdjustmentTarget>(entry?.adjustment_target ?? "balance");
+  const [adjSign, setAdjSign] = useState<1 | -1 | null>(entry?.adjustment_sign ?? null);
+  const [adjMode, setAdjMode] = useState<AdjustmentMode | null>(entry?.adjustment_mode ?? null);
+  // «Чьи деньги» у корректировки остатка: деньги компании = «меняет аванс».
+  const [adjMoney, setAdjMoney] = useState<Source>(entry?.adjustment_affects_advance ? "company" : "own");
+  const [title, setTitle] = useState(entry?.title ?? "");
   const [comment, setComment] = useState(entry?.comment ?? "");
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -131,7 +146,8 @@ export function EntryForm(props: {
     (a) => a.account_id !== accountId && (!account || a.currency === account.currency),
   );
   const toAccount = toAccounts.find((a) => a.account_id === toAccountId);
-  const hasAccount = type !== "netting";
+  const isDebtAdjustment = type === "adjustment" && adjTarget !== "balance";
+  const hasAccount = type !== "netting" && !isDebtAdjustment;
   const minDate = [
     hasAccount ? account?.start_date : undefined,
     type === "transfer" ? toAccount?.start_date : undefined,
@@ -150,7 +166,10 @@ export function EntryForm(props: {
     (type === "transfer" && (transferPurpose === "move_company" || transferPurpose === "take_advance"));
   const advanceOnDate = useAdvanceOnDate(showsAdvance ? accountId : "", date, entry?.entry_id);
   const debtOnDate = useDebtOnDate(
-    (type === "transfer" && transferPurpose === "repay_debt") || type === "settlement" || type === "netting",
+    (type === "transfer" && transferPurpose === "repay_debt") ||
+      type === "settlement" ||
+      type === "netting" ||
+      isDebtAdjustment,
     date,
     entry?.entry_id,
   );
@@ -158,7 +177,7 @@ export function EntryForm(props: {
 
   // Конфликт изъятия или погашения на самой записи из формы, а не на более поздней записи.
   function isSelfConflict(d: Record<string, unknown>, amountMinor: number): boolean {
-    if (!["company_advance_return", "transfer", "settlement", "netting"].includes(type)) return false;
+    if (!["company_advance_return", "transfer", "settlement", "netting", "adjustment"].includes(type)) return false;
     if (entry) return d.entry_id === entry.entry_id;
     return d.occurred_on === date && d.amount_minor === amountMinor;
   }
@@ -172,6 +191,9 @@ export function EntryForm(props: {
     if (parsed.minor === 0) return setFailure("Сумма должна быть больше нуля.");
     if (hasAccount && !accountId) return setFailure(type === "transfer" ? "Выберите, откуда перевод." : "Выберите счёт.");
     if (type === "settlement" && !direction) return setFailure("Выберите, кто кому отдал деньги.");
+    if (type === "adjustment" && !adjSign) return setFailure("Выберите: плюс или минус.");
+    if (type === "adjustment" && !isDebtAdjustment && !adjMode)
+      return setFailure("Выберите, где видна корректировка: скрыта или в разрезах трат.");
     if (type === "transfer") {
       if (!toAccount) return setFailure("Выберите, куда перевод.");
       if (!transferPurpose) return setFailure("Выберите назначение перевода.");
@@ -196,12 +218,22 @@ export function EntryForm(props: {
       account_id: hasAccount ? accountId : null,
       category_id: type === "expense" || type === "income" ? categoryId || null : null,
       comment: comment.trim() || null,
+      // Заголовок правит только форма корректировки; у остальных типов он сохраняется как был.
+      title: type === "adjustment" ? title.trim() || null : (entry?.title ?? null),
     };
     if (type === "expense") {
       payload.purpose = purpose;
       payload.source = sourceNeeded ? source : null;
     }
     if (type === "settlement") payload.settlement_direction = direction;
+    if (type === "adjustment") {
+      payload.adjustment_target = adjTarget;
+      payload.adjustment_sign = adjSign;
+      if (!isDebtAdjustment) {
+        payload.adjustment_mode = adjMode;
+        payload.adjustment_affects_advance = adjMoney === "company";
+      }
+    }
     if (type === "transfer" && feeParsed.ok) {
       payload.to_account_id = toAccountId;
       payload.transfer_purpose = transferPurpose;
@@ -280,6 +312,13 @@ export function EntryForm(props: {
             label="Погашение долга"
           />
           <ChoiceOption name="entry-type" checked={type === "netting"} onChange={() => setType("netting")} label="Взаимозачёт" />
+          <ChoiceOption
+            name="entry-type"
+            checked={type === "adjustment"}
+            onChange={() => setType("adjustment")}
+            label="Корректировка"
+            wide
+          />
         </div>
       </fieldset>
 
@@ -312,6 +351,16 @@ export function EntryForm(props: {
           <span aria-hidden="true">₸</span>
         </div>
       </div>
+
+      {type === "adjustment" && (
+        <AdjustmentTop
+          target={adjTarget}
+          onTarget={setAdjTarget}
+          sign={adjSign}
+          onSign={setAdjSign}
+          debtOnDate={debtOnDate}
+        />
+      )}
 
       {type === "settlement" && (
         <fieldset className="choice">
@@ -515,6 +564,75 @@ export function EntryForm(props: {
         </p>
       )}
 
+      {type === "adjustment" && !isDebtAdjustment && (
+        <>
+          <fieldset className="choice">
+            <legend>Чьи деньги</legend>
+            <div className="choice__options">
+              <ChoiceOption
+                name="entry-adjustment-money"
+                checked={adjMoney === "own"}
+                onChange={() => setAdjMoney("own")}
+                label="Свои"
+                swatch="own"
+              />
+              <ChoiceOption
+                name="entry-adjustment-money"
+                checked={adjMoney === "company"}
+                onChange={() => setAdjMoney("company")}
+                label="Деньги компании"
+                swatch="company"
+              />
+            </div>
+            <p className="field__hint">
+              {adjMoney === "own"
+                ? "Меняется только остаток счёта, аванс и долг остаются как были."
+                : adjSign === -1
+                  ? "Остаток и аванс уменьшатся. Аванс не уйдёт в минус: если его меньше, он станет нулём."
+                  : "Остаток и аванс вырастут на эту сумму, долг не изменится."}
+            </p>
+          </fieldset>
+          <fieldset className="choice">
+            <legend>Где видна</legend>
+            <div className="choice__options">
+              <ChoiceOption
+                name="entry-adjustment-mode"
+                checked={adjMode === "plug_hidden"}
+                onChange={() => setAdjMode("plug_hidden")}
+                label="Скрыта"
+              />
+              <ChoiceOption
+                name="entry-adjustment-mode"
+                checked={adjMode === "plug_analytics"}
+                onChange={() => setAdjMode("plug_analytics")}
+                label="В разрезах трат"
+              />
+            </div>
+            {adjMode && (
+              <p className="field__hint">
+                {adjMode === "plug_hidden"
+                  ? "Подгоняет остаток, в разрезы трат не попадает."
+                  : "Попадёт в разрезы трат как неучтённые траты или поступления."}
+              </p>
+            )}
+          </fieldset>
+        </>
+      )}
+
+      {type === "adjustment" && (
+        <div className="field">
+          <label htmlFor="entry-title">Название, по желанию</label>
+          <input
+            id="entry-title"
+            type="text"
+            autoComplete="off"
+            placeholder="Например, сверка с выпиской"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+        </div>
+      )}
+
       {type === "company_advance_return" && (
         <p className="field__hint">
           Компания забирает свои деньги с этого счёта: аванс и остаток уменьшатся, долг не изменится.
@@ -684,6 +802,73 @@ function useAdvanceOnDate(accountId: string, date: string, entryId?: string): nu
   return advance;
 }
 
+/**
+ * Верх формы корректировки: что подгоняем (остаток счёта или сторона долга) и знак. У долговой
+ * стороны подсказка с суммой на дату от сервера: сторона не уходит в минус.
+ */
+function AdjustmentTop(props: {
+  target: AdjustmentTarget;
+  onTarget: (t: AdjustmentTarget) => void;
+  sign: 1 | -1 | null;
+  onSign: (s: 1 | -1) => void;
+  debtOnDate: { owe_me: number; i_owe: number } | null;
+}) {
+  const { target, sign, debtOnDate } = props;
+  const side = target === "balance" ? null : target;
+  return (
+    <>
+      <fieldset className="choice">
+        <legend>Что подгоняем</legend>
+        <div className="choice__options choice__options--grid">
+          <ChoiceOption
+            name="entry-adjustment-target"
+            checked={target === "balance"}
+            onChange={() => props.onTarget("balance")}
+            label="Остаток счёта"
+            wide
+          />
+          <ChoiceOption
+            name="entry-adjustment-target"
+            checked={target === "i_owe_company"}
+            onChange={() => props.onTarget("i_owe_company")}
+            label={DEBT_SIDES.i_owe_company}
+            swatch="company"
+          />
+          <ChoiceOption
+            name="entry-adjustment-target"
+            checked={target === "company_owes_me"}
+            onChange={() => props.onTarget("company_owes_me")}
+            label={DEBT_SIDES.company_owes_me}
+            swatch="own"
+          />
+        </div>
+        {side && (
+          <p className="field__hint">
+            Для сверки с компанией: меняется только эта сторона долга, счёт не нужен, деньги не двигаются.
+            {debtOnDate !== null && (
+              <>
+                {" "}
+                {side === "i_owe_company" ? "На эту дату вы должны компании" : "На эту дату компания должна вам"}{" "}
+                <span className="amount">
+                  {formatMoney(side === "i_owe_company" ? debtOnDate.i_owe : debtOnDate.owe_me, "KZT")}
+                </span>
+                , в минус сторона не уйдёт.
+              </>
+            )}
+          </p>
+        )}
+      </fieldset>
+      <fieldset className="choice">
+        <legend>{side ? "Сторона долга" : "Остаток"}</legend>
+        <div className="choice__options">
+          <ChoiceOption name="entry-adjustment-sign" checked={sign === 1} onChange={() => props.onSign(1)} label="Плюс" />
+          <ChoiceOption name="entry-adjustment-sign" checked={sign === -1} onChange={() => props.onSign(-1)} label="Минус" />
+        </div>
+      </fieldset>
+    </>
+  );
+}
+
 /** Подпись счёта: у перевода «откуда», у погашения долга откуда ушли или куда пришли деньги. */
 function accountLabel(type: FormType, direction: SettlementDirection | null): string {
   if (type === "transfer") return "Откуда";
@@ -729,6 +914,10 @@ function entryErrorText(
   if (error.message === "netting_too_big") {
     const d = errorDetails(error);
     return nettingTooBigErrorText(d, isSelf(d));
+  }
+  if (error.message === "debt_below_zero") {
+    const d = errorDetails(error);
+    return debtBelowZeroErrorText(d, isSelf(d));
   }
   if (error.message === "entry_before_start") {
     const d = errorDetails(error);

@@ -95,7 +95,8 @@ select throws_ok($$ select public.setup_start('2026-11-01', 100, 0) $$, '42501',
 reset role;
 
 -- Пересчёт идёт по дате, затем времени (пустое последним), времени создания, номеру вставки;
--- черновики не входят. Записи вставлены как фикстура: функции создания записей появятся в 07+.
+-- черновики не входят. Здесь фикстура от postgres: черновиков до тикета 15 нет, а create_entry
+-- сразу отклонил бы минус, вставленный раньше плюса (так и надо, но порядок ввода тогда не проверить).
 -- У владельца сейчас «я должен компании» = 5 000 ₸.
 insert into public.entries (user_id, type, status, occurred_on, occurred_at, created_at, amount_minor,
                             amount_kzt_minor, adjustment_mode, adjustment_sign, adjustment_target, in_analytics)
@@ -115,23 +116,19 @@ select results_eq($$ select * from pg_temp.settlement() $$,
   'replay follows the real date, not the input order; drafts are left out');
 reset role;
 
--- Одна дата 05.11: запись со временем идёт раньше записи без времени, раньше созданная
--- раньше. Минус на всю сторону до прихода плюса уводит сторону в минус: ошибка с id записи.
-insert into public.entries (id, user_id, type, occurred_on, occurred_at, created_at, amount_minor,
-                            amount_kzt_minor, adjustment_mode, adjustment_sign, adjustment_target, in_analytics)
-values
-  ('00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-00000000000a', 'adjustment',
-   '2026-11-05', null, now() - interval '1 hour', 100000, 100000, 'plug_hidden', 1, 'i_owe_company', false),
-  ('00000000-0000-0000-0000-0000000000e2', '00000000-0000-0000-0000-00000000000a', 'adjustment',
-   '2026-11-05', '2026-11-05 10:00+05', now(), 300000, 300000, 'plug_hidden', -1, 'i_owe_company', false);
+-- Одна дата 05.11: запись со временем идёт раньше записи без времени, даже если создана позже.
+-- Минус на всю сторону до прихода плюса уводит сторону в минус: ошибка с id записи изнутри пересчёта.
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
-select is(pg_temp.error_of('select public.recompute()'),
-  '{"code": "debt_below_zero", "detail": {"side": "i_owe_company", "entry_id": "00000000-0000-0000-0000-0000000000e2",
-    "occurred_on": "2026-11-05", "available_minor": 200000}}'::jsonb,
-  'debt side cannot go below zero: error code and the entry id from inside the replay');
+select public.create_entry(jsonb_build_object('type', 'adjustment', 'occurred_on', '2026-11-05',
+  'amount_minor', 100000, 'adjustment_target', 'i_owe_company', 'adjustment_sign', 1));
+select is(pg_temp.error_of($$ select public.create_entry(jsonb_build_object('type', 'adjustment',
+    'occurred_on', '2026-11-05', 'occurred_at', '2026-11-05T10:00:00+05:00', 'amount_minor', 300000,
+    'adjustment_target', 'i_owe_company', 'adjustment_sign', -1)) $$) #- '{detail,entry_id}',
+  '{"code": "debt_below_zero", "detail": {"side": "i_owe_company", "occurred_on": "2026-11-05", "available_minor": 200000, "amount_minor": 300000}}'::jsonb,
+  'debt side cannot go below zero: the timed entry replays before the untimed one of the same day');
 select results_eq($$ select * from pg_temp.settlement() $$,
-  $$ values (1200000::bigint, 200000::bigint, 1000000::bigint) $$,
-  'failed recompute left the ledger as it was');
+  $$ values (1200000::bigint, 300000::bigint, 900000::bigint) $$,
+  'failed entry left the ledger as it was');
 reset role;
 
 select * from finish();

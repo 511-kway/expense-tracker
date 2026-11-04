@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   advanceReturnErrorText,
   breakdownLabel,
+  debtBelowZeroErrorText,
+  adjustmentLabel,
   debtOverpayErrorText,
   entryTitle,
   errorDetails,
@@ -160,5 +162,40 @@ describe("breakdownLabel", () => {
       breakdownLabel({ ...base, type: "settlement", settlement_direction: "company_paid_me", account_name: "H1" }),
     ).toBe("Погашение долга: компания отдала мне, «H1»");
     expect(breakdownLabel({ ...base, type: "netting" })).toBe("Взаимозачёт");
+  });
+});
+
+describe("debtBelowZeroErrorText", () => {
+  it("on the adjustment itself: how much of the side there is on that date", () => {
+    expect(debtBelowZeroErrorText({ side: "i_owe_company", available_minor: 200000 }, true)).toBe(
+      "Сторона долга не может уйти в минус: на эту дату вы должны компании 2 000 ₸, убрать можно не больше.",
+    );
+  });
+  it("names the later adjustment that a backdated change breaks", () => {
+    expect(
+      debtBelowZeroErrorText(
+        { side: "company_owes_me", available_minor: 1200000, occurred_on: "2026-11-06", entry_id: "e9" },
+        false,
+      ),
+    ).toBe(
+      "Не получится: корректировка долга 6 ноября 2026 уведёт «компания должна мне» в минус (на ту дату 12 000 ₸). " +
+        "Сначала измените или удалите эту корректировку.",
+    );
+  });
+});
+
+describe("adjustmentLabel", () => {
+  it("describes a balance adjustment by mode and advance", () => {
+    expect(adjustmentLabel({ adjustment_target: "balance", adjustment_mode: "plug_hidden", adjustment_affects_advance: true })).toBe(
+      "скрыта, меняет аванс",
+    );
+    expect(adjustmentLabel({ adjustment_target: "balance", adjustment_mode: "plug_analytics", adjustment_affects_advance: false })).toBe(
+      "в разрезах трат",
+    );
+  });
+  it("names the debt side of a debt adjustment", () => {
+    expect(adjustmentLabel({ adjustment_target: "i_owe_company", adjustment_mode: "plug_hidden", adjustment_affects_advance: false })).toBe(
+      "сторона «я должен компании»",
+    );
   });
 });

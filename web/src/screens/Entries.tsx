@@ -2,7 +2,15 @@ import { useEffect, useState, type ReactNode } from "react";
 import { supabase } from "../supabase";
 import { formatMoney } from "../money";
 import { formatDate } from "../dates";
-import { ENTRY_COLUMNS, SETTLEMENT_DIRECTIONS, TRANSFER_PURPOSES, entryTitle, formatSigned, type EntryRow } from "../entries";
+import {
+  ENTRY_COLUMNS,
+  SETTLEMENT_DIRECTIONS,
+  TRANSFER_PURPOSES,
+  adjustmentLabel,
+  entryTitle,
+  formatSigned,
+  type EntryRow,
+} from "../entries";
 
 /** Эти типы правятся в форме; остальные появятся со своими тикетами. */
 export const EDITABLE = new Set([
@@ -13,6 +21,7 @@ export const EDITABLE = new Set([
   "company_advance_return",
   "settlement",
   "netting",
+  "adjustment",
 ]);
 
 /**
@@ -119,6 +128,7 @@ function meta(e: EntryRow): string {
   if (e.type === "settlement" && e.settlement_direction)
     parts.push(SETTLEMENT_DIRECTIONS[e.settlement_direction].toLowerCase());
   if (e.type === "netting") parts.push("обе стороны долга, без движения денег");
+  if (e.type === "adjustment") parts.push(adjustmentLabel(e));
   if (e.type === "expense") {
     if (e.purpose === "work") parts.push("работа");
     else parts.push(e.source === "company" ? "личное, деньгами компании" : "личное");

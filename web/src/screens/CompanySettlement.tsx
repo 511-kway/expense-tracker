@@ -27,7 +27,8 @@ const SIDE_TITLES: Record<DebtSide, string> = {
 /**
  * «Расчёт с компанией»: обе стороны долга и итог (v_company_settlement), каждая сторона
  * раскрывается до записей, из которых сложилась (v_settlement_breakdown), ниже отдельный список
- * погашений долга и взаимозачётов (v_entries). Все числа с сервера, клиент только показывает.
+ * погашений долга и взаимозачётов (v_entries). Строки разбора открывают запись на правку
+ * (корректировки долга правятся только отсюда и из ленты). Все числа с сервера, клиент только показывает.
  * Стороны показаны встречными полосами от центра (docs/design.md), итог над ними.
  */
 export function CompanySettlement({
@@ -39,6 +40,7 @@ export function CompanySettlement({
 }) {
   const [state, setState] = useState<State>({ kind: "loading" });
   const [open, setOpen] = useState<Record<DebtSide, boolean>>({ i_owe_company: false, company_owes_me: false });
+  const [openFailed, setOpenFailed] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -91,6 +93,13 @@ export function CompanySettlement({
   const share = (v: number) => (scale === 0 ? 0 : Math.max(v / scale, v > 0 ? 0.02 : 0));
   const rowsOf = (side: DebtSide) => breakdown.filter((r) => r.side === side);
   const toggle = (side: DebtSide) => setOpen((o) => ({ ...o, [side]: !o[side] }));
+  // Строка разбора открывает запись на правку: полную строку ленты берём по id.
+  async function openEntry(entryId: string) {
+    setOpenFailed(false);
+    const { data, error } = await supabase.from("v_entries").select(ENTRY_COLUMNS).eq("entry_id", entryId).single();
+    if (error || !data) return setOpenFailed(true);
+    onEdit(data as unknown as EntryRow);
+  }
 
   return (
     <div className="settlement">
@@ -149,19 +158,43 @@ export function CompanySettlement({
                 {SIDE_TITLES[side]}: из чего сложилось
               </h2>
               <ol className="breakdown__list">
-                {rowsOf(side).map((r) => (
-                  <li key={r.entry_id} className="breakdown__row">
-                    <span className="breakdown__date muted">{formatDate(r.occurred_on)}</span>
-                    <span className="breakdown__label">{breakdownLabel(r)}</span>
-                    <span className="breakdown__delta amount">{formatSigned(r.delta_minor, "KZT")}</span>
-                    <span className="breakdown__after muted">
-                      стало <span className="amount">{formatMoney(r.side_after_minor, "KZT")}</span>
-                    </span>
-                  </li>
-                ))}
+                {rowsOf(side).map((r) => {
+                  const row = (
+                    <>
+                      <span className="breakdown__date muted">{formatDate(r.occurred_on)}</span>
+                      <span className="breakdown__label">{breakdownLabel(r)}</span>
+                      <span className="breakdown__delta amount">{formatSigned(r.delta_minor, "KZT")}</span>
+                      <span className="breakdown__after muted">
+                        стало <span className="amount">{formatMoney(r.side_after_minor, "KZT")}</span>
+                      </span>
+                    </>
+                  );
+                  return (
+                    <li key={r.entry_id}>
+                      {EDITABLE.has(r.type) ? (
+                        <button
+                          className="breakdown__row"
+                          type="button"
+                          aria-label={`${breakdownLabel(r)}, ${formatDate(r.occurred_on)}: изменить запись`}
+                          onClick={() => void openEntry(r.entry_id)}
+                        >
+                          {row}
+                        </button>
+                      ) : (
+                        <div className="breakdown__row">{row}</div>
+                      )}
+                    </li>
+                  );
+                })}
               </ol>
             </section>
           ),
+      )}
+
+      {openFailed && (
+        <p className="error" role="alert">
+          Не получилось открыть запись. Обновите страницу и попробуйте ещё раз.
+        </p>
       )}
 
       <section className="repayments" aria-labelledby="repayments-title">

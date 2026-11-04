@@ -655,6 +655,24 @@ h2 {
   border-bottom: 1px solid var(--line);
 }
 
+button.breakdown__row {
+  width: 100%;
+  border-width: 0 0 1px;
+  border-style: solid;
+  border-color: var(--line);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.breakdown__row:hover .breakdown__label {
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 0.2em;
+}
+
 .breakdown__date {
   grid-column: 1 / -1;
   font-size: var(--text-xs);

@@ -147,15 +147,11 @@ select results_eq($$ select balance_minor, advance_minor, own_minor from public.
 reset role;
 
 -- Корректировка остатка в минус с авансом: аванс не уходит в минус (док 03, 4.7).
--- Записи корректировок создаёт тикет 12; здесь фикстура от postgres.
-insert into public.entries (user_id, type, occurred_on, amount_minor, amount_kzt_minor, account_id,
-                            adjustment_mode, adjustment_sign, adjustment_target, adjustment_affects_advance,
-                            in_analytics)
-select '00000000-0000-0000-0000-00000000000a', 'adjustment', '2026-11-03', 12000000, 12000000, id,
-       'plug_hidden', -1, 'balance', true, false
-from public.accounts where name = 'Halyk Gold';
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
-select public.recompute();
+select public.create_entry(jsonb_build_object(
+  'type', 'adjustment', 'occurred_on', '2026-11-03', 'amount_minor', 12000000,
+  'account_id', (select id from public.accounts where name = 'Halyk Gold'),
+  'adjustment_sign', -1, 'adjustment_mode', 'plug_hidden', 'adjustment_affects_advance', true));
 select results_eq($$ select balance_minor, advance_minor, own_minor from public.v_account_balances
                      where name = 'Halyk Gold' $$,
   $$ values (3000000::bigint, 0::bigint, 3000000::bigint) $$,

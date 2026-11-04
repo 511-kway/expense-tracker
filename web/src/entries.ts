@@ -42,6 +42,20 @@ export type EntryRow = {
   to_advance_delta_minor: number;
   /** Погашение долга: кто кому отдал. */
   settlement_direction: SettlementDirection | null;
+  /** Корректировка: цель, знак, режим и «меняет аванс». */
+  adjustment_target: AdjustmentTarget | null;
+  adjustment_sign: 1 | -1 | null;
+  adjustment_mode: AdjustmentMode | null;
+  adjustment_affects_advance: boolean;
+};
+
+export type AdjustmentTarget = "balance" | DebtSide;
+export type AdjustmentMode = "plug_hidden" | "plug_analytics";
+
+/** Стороны долга по GLOSSARY.md. */
+export const DEBT_SIDES: Record<DebtSide, string> = {
+  company_owes_me: "Компания должна мне",
+  i_owe_company: "Я должен компании",
 };
 
 export type SettlementDirection = "i_paid_company" | "company_paid_me";
@@ -86,7 +100,7 @@ export const TRANSFER_PURPOSES: Record<TransferPurpose, string> = {
 };
 
 export const ENTRY_COLUMNS =
-  "entry_id, type, status, occurred_on, amount_minor, currency, account_id, account_name, category_id, category_name, purpose, source, comment, title, balance_delta_minor, advance_delta_minor, company_owes_me_delta_minor, i_owe_company_delta_minor, fee_minor, fee_payer, transfer_purpose, to_account_id, to_account_name, to_balance_delta_minor, to_advance_delta_minor, settlement_direction";
+  "entry_id, type, status, occurred_on, amount_minor, currency, account_id, account_name, category_id, category_name, purpose, source, comment, title, balance_delta_minor, advance_delta_minor, company_owes_me_delta_minor, i_owe_company_delta_minor, fee_minor, fee_payer, transfer_purpose, to_account_id, to_account_name, to_balance_delta_minor, to_advance_delta_minor, settlement_direction, adjustment_target, adjustment_sign, adjustment_mode, adjustment_affects_advance";
 
 /** Предупреждение из ответа create_entry / update_entry / delete_entry. */
 export type EntryWarning =
@@ -239,4 +253,34 @@ export function breakdownLabel(
     default:
       return r.title ?? TYPE_TITLES[r.type];
   }
+}
+
+/**
+ * Ошибка «сторона долга уходит в минус» (debt_below_zero, ADR-0006) у долговой корректировки.
+ * self = конфликт на самой записи из формы; иначе правка или удаление задним числом ломает более
+ * позднюю корректировку.
+ */
+export function debtBelowZeroErrorText(details: Record<string, unknown>, self: boolean): string {
+  const available = formatMoney(typeof details.available_minor === "number" ? details.available_minor : 0, "KZT");
+  const side: DebtSide = details.side === "company_owes_me" ? "company_owes_me" : "i_owe_company";
+  if (self) {
+    const who = side === "company_owes_me" ? "компания должна вам" : "вы должны компании";
+    return `Сторона долга не может уйти в минус: на эту дату ${who} ${available}, убрать можно не больше.`;
+  }
+  const date = typeof details.occurred_on === "string" ? formatDate(details.occurred_on) : "позже";
+  return (
+    `Не получится: корректировка долга ${date} уведёт «${DEBT_SIDES[side].toLowerCase()}» в минус (на ту дату ${available}). ` +
+    "Сначала измените или удалите эту корректировку."
+  );
+}
+
+/** Что за корректировка, мелко в ленте: режим и аванс у остатка, сторона у долговой. */
+export function adjustmentLabel(
+  e: Pick<EntryRow, "adjustment_target" | "adjustment_mode" | "adjustment_affects_advance">,
+): string {
+  if (e.adjustment_target && e.adjustment_target !== "balance")
+    return `сторона «${DEBT_SIDES[e.adjustment_target].toLowerCase()}»`;
+  const parts = [e.adjustment_mode === "plug_analytics" ? "в разрезах трат" : "скрыта"];
+  if (e.adjustment_affects_advance) parts.push("меняет аванс");
+  return parts.join(", ");
 }
