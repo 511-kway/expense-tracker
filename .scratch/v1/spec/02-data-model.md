@@ -20,11 +20,11 @@
 
 - `account_type`: `card`, `bank_account`, `cash`
 - `account_owner`: `me`, `spouse`
-- `entry_type`: `expense`, `income`, `transfer`, `company_topup`, `company_advance_return`, `settlement`, `adjustment`, `refund`
+- `entry_type`: `expense`, `income`, `transfer`, `company_topup`, `company_advance_return`, `settlement`, `netting`, `adjustment`, `refund` (`netting` = взаимозачёт, новый тип по spec.md)
 - `entry_status`: `draft`, `done`
 - `purpose`: `personal`, `work`
 - `money_source`: `own`, `company`
-- `transfer_purpose`: `repay_debt`, `top_up_advance`, `take_advance`, `move_own`, `move_company`
+- `transfer_purpose`: `repay_debt`, `take_advance`, `move_own`, `move_company` (назначения `top_up_advance` («пополнил аванс переводом») нет: убрано в spec.md, оно дублировало `move_company`)
 - `fee_payer`: `own`, `company`
 - `rate_source`: `nbk`, `manual`, `derived`
 - `settlement_direction`: `i_paid_company`, `company_paid_me`
@@ -134,9 +134,11 @@
 
 Легенда: X обязательно, o опционально, пусто неприменимо.
 
+Взаимозачёт (`netting`, spec.md): только общие поля (`amount_minor` в тенге, дата, комментарий), `account_id` null. В погашении долга (`settlement`) счёт обязателен (spec.md).
+
 | Поле \ Тип | expense | income | transfer | company_topup | company_advance_return | settlement | adjustment | refund |
 |---|---|---|---|---|---|---|---|---|
-| account_id | X | X | X (откуда) | X | X | o | X (null для долговой цели) | X |
+| account_id | X | X | X (откуда) | X | X | X | X (null для долговой цели) | X |
 | to_account_id | | | X (куда) | | | | | |
 | amount_minor | X | X | X | X | X | X | X | X |
 | currency/amount_kzt | X | X | X | X | X | (KZT) | X | X |

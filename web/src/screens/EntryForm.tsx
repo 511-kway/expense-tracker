@@ -4,24 +4,42 @@ import { formatAmountInput, formatMoney, minorToAmountInput, parseAmountInput } 
 import { formatDate, todayInAlmaty } from "../dates";
 import { errorText } from "../errors";
 import {
+  SETTLEMENT_DIRECTIONS,
   TRANSFER_PURPOSES,
   advanceReturnErrorText,
   debtOverpayErrorText,
   errorDetails,
+  nettingTooBigErrorText,
   type EntryRow,
   type EntryWarning,
+  type SettlementDirection,
   type TransferPurpose,
 } from "../entries";
 import { MoneyField } from "./form";
 import type { AccountRow } from "./Accounts";
 import type { CategoryRow } from "./Categories";
 
-type FormType = "expense" | "income" | "transfer" | "company_topup" | "company_advance_return";
+type FormType =
+  | "expense"
+  | "income"
+  | "transfer"
+  | "company_topup"
+  | "company_advance_return"
+  | "settlement"
+  | "netting";
 type FeeStyle = "arrived_fee" | "sent_fee" | "sent_arrived";
 type Purpose = "personal" | "work";
 type Source = "own" | "company";
 
-const FORM_TYPES: FormType[] = ["expense", "income", "transfer", "company_topup", "company_advance_return"];
+const FORM_TYPES: FormType[] = [
+  "expense",
+  "income",
+  "transfer",
+  "company_topup",
+  "company_advance_return",
+  "settlement",
+  "netting",
+];
 
 const SAVED: Record<FormType, string> = {
   expense: "Трата записана",
@@ -29,6 +47,8 @@ const SAVED: Record<FormType, string> = {
   transfer: "Перевод записан",
   company_topup: "Пополнение записано",
   company_advance_return: "Изъятие записано",
+  settlement: "Погашение долга записано",
+  netting: "Взаимозачёт записан",
 };
 
 const SUBMIT: Record<FormType, string> = {
@@ -37,6 +57,8 @@ const SUBMIT: Record<FormType, string> = {
   transfer: "Записать перевод",
   company_topup: "Записать пополнение",
   company_advance_return: "Записать изъятие",
+  settlement: "Записать погашение",
+  netting: "Записать взаимозачёт",
 };
 
 /** Три способа ввести комиссию пополнения: какие два числа известны. Суммы считает сервер. */
@@ -60,7 +82,7 @@ export type SaveResult = { message: string; warnings: EntryWarning[] };
 
 /**
  * Форма записи (док 04, 4.2): трата, поступление, перевод, пополнение от компании, изъятие
- * аванса. У перевода «куда» без счёта «откуда» и только той же валюты, назначение и комиссия.
+ * аванса, погашение долга (счёт обязателен) и взаимозачёт (без счёта). У перевода «куда» без счёта «откуда» и только той же валюты, назначение и комиссия.
  * Клиент собирает ввод и зовёт create_entry / update_entry; сплит, источник по умолчанию,
  * суммы пополнения с комиссией и проверки делает сервер. Вопрос «чьими деньгами» только у
  * личной траты, когда сервер говорит, что на счёте на эту дату есть аванс.
@@ -97,6 +119,7 @@ export function EntryForm(props: {
   const [toAccountId, setToAccountId] = useState(entry?.to_account_id ?? "");
   const [transferPurpose, setTransferPurpose] = useState<TransferPurpose | null>(entry?.transfer_purpose ?? null);
   const [fee, setFee] = useState(isTransfer && entry?.fee_minor ? minorToAmountInput(entry.fee_minor) : "");
+  const [direction, setDirection] = useState<SettlementDirection | null>(entry?.settlement_direction ?? null);
   const [comment, setComment] = useState(entry?.comment ?? "");
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -108,7 +131,12 @@ export function EntryForm(props: {
     (a) => a.account_id !== accountId && (!account || a.currency === account.currency),
   );
   const toAccount = toAccounts.find((a) => a.account_id === toAccountId);
-  const minDate = [account?.start_date, type === "transfer" ? toAccount?.start_date : undefined, accountingStartDate]
+  const hasAccount = type !== "netting";
+  const minDate = [
+    hasAccount ? account?.start_date : undefined,
+    type === "transfer" ? toAccount?.start_date : undefined,
+    accountingStartDate,
+  ]
     .filter((d): d is string => !!d)
     .sort()
     .pop();
@@ -121,12 +149,16 @@ export function EntryForm(props: {
     type === "company_advance_return" ||
     (type === "transfer" && (transferPurpose === "move_company" || transferPurpose === "take_advance"));
   const advanceOnDate = useAdvanceOnDate(showsAdvance ? accountId : "", date, entry?.entry_id);
-  const debtOnDate = useDebtOnDate(type === "transfer" && transferPurpose === "repay_debt", date, entry?.entry_id);
+  const debtOnDate = useDebtOnDate(
+    (type === "transfer" && transferPurpose === "repay_debt") || type === "settlement" || type === "netting",
+    date,
+    entry?.entry_id,
+  );
   const topup = useTopupAmounts(type === "company_topup", feeStyle, amount, second, feePayer);
 
   // Конфликт изъятия или погашения на самой записи из формы, а не на более поздней записи.
   function isSelfConflict(d: Record<string, unknown>, amountMinor: number): boolean {
-    if (type !== "company_advance_return" && type !== "transfer") return false;
+    if (!["company_advance_return", "transfer", "settlement", "netting"].includes(type)) return false;
     if (entry) return d.entry_id === entry.entry_id;
     return d.occurred_on === date && d.amount_minor === amountMinor;
   }
@@ -138,7 +170,8 @@ export function EntryForm(props: {
     if (!parsed.ok)
       return setFailure(parsed.error === "empty" ? "Введите сумму." : "Введите сумму цифрами, копейки не больше двух знаков.");
     if (parsed.minor === 0) return setFailure("Сумма должна быть больше нуля.");
-    if (!accountId) return setFailure(type === "transfer" ? "Выберите, откуда перевод." : "Выберите счёт.");
+    if (hasAccount && !accountId) return setFailure(type === "transfer" ? "Выберите, откуда перевод." : "Выберите счёт.");
+    if (type === "settlement" && !direction) return setFailure("Выберите, кто кому отдал деньги.");
     if (type === "transfer") {
       if (!toAccount) return setFailure("Выберите, куда перевод.");
       if (!transferPurpose) return setFailure("Выберите назначение перевода.");
@@ -160,7 +193,7 @@ export function EntryForm(props: {
       type,
       occurred_on: date,
       amount_minor: parsed.minor,
-      account_id: accountId,
+      account_id: hasAccount ? accountId : null,
       category_id: type === "expense" || type === "income" ? categoryId || null : null,
       comment: comment.trim() || null,
     };
@@ -168,6 +201,7 @@ export function EntryForm(props: {
       payload.purpose = purpose;
       payload.source = sourceNeeded ? source : null;
     }
+    if (type === "settlement") payload.settlement_direction = direction;
     if (type === "transfer" && feeParsed.ok) {
       payload.to_account_id = toAccountId;
       payload.transfer_purpose = transferPurpose;
@@ -239,6 +273,13 @@ export function EntryForm(props: {
             label="Изъятие аванса"
             swatch="company"
           />
+          <ChoiceOption
+            name="entry-type"
+            checked={type === "settlement"}
+            onChange={() => setType("settlement")}
+            label="Погашение долга"
+          />
+          <ChoiceOption name="entry-type" checked={type === "netting"} onChange={() => setType("netting")} label="Взаимозачёт" />
         </div>
       </fieldset>
 
@@ -272,25 +313,66 @@ export function EntryForm(props: {
         </div>
       </div>
 
+      {type === "settlement" && (
+        <fieldset className="choice">
+          <legend>Кто кому отдал</legend>
+          <div className="choice__options">
+            <ChoiceOption
+              name="entry-settlement-direction"
+              checked={direction === "i_paid_company"}
+              onChange={() => setDirection("i_paid_company")}
+              label={SETTLEMENT_DIRECTIONS.i_paid_company}
+              swatch="company"
+            />
+            <ChoiceOption
+              name="entry-settlement-direction"
+              checked={direction === "company_paid_me"}
+              onChange={() => setDirection("company_paid_me")}
+              label={SETTLEMENT_DIRECTIONS.company_paid_me}
+              swatch="own"
+            />
+          </div>
+          {direction && (
+            <p className="field__hint">
+              {direction === "i_paid_company"
+                ? "Деньги уйдут со счёта и уменьшат «я должен компании»."
+                : "Деньги придут на счёт как свои, не авансом, и уменьшат «компания должна мне»."}
+              {debtOnDate !== null && (
+                <>
+                  {" "}
+                  {direction === "i_paid_company" ? "На эту дату вы должны компании" : "На эту дату компания должна вам"}{" "}
+                  <span className="amount">
+                    {formatMoney(direction === "i_paid_company" ? debtOnDate.i_owe : debtOnDate.owe_me, "KZT")}
+                  </span>
+                  , погасить можно не больше.
+                </>
+              )}
+            </p>
+          )}
+        </fieldset>
+      )}
+
       <div className="account-form__row">
-        <div className="field">
-          <label htmlFor="entry-account">{type === "transfer" ? "Откуда" : "Счёт"}</label>
-          <select
-            id="entry-account"
-            value={accountId}
-            onChange={(e) => {
-              setAccountId(e.target.value);
-              if (e.target.value === toAccountId) setToAccountId("");
-            }}
-          >
-            {!accountId && <option value="">Выберите счёт</option>}
-            {accounts.map((a) => (
-              <option key={a.account_id} value={a.account_id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-        </div>
+        {hasAccount && (
+          <div className="field">
+            <label htmlFor="entry-account">{accountLabel(type, direction)}</label>
+            <select
+              id="entry-account"
+              value={accountId}
+              onChange={(e) => {
+                setAccountId(e.target.value);
+                if (e.target.value === toAccountId) setToAccountId("");
+              }}
+            >
+              {!accountId && <option value="">Выберите счёт</option>}
+              {accounts.map((a) => (
+                <option key={a.account_id} value={a.account_id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="field">
           <label htmlFor="entry-date">Дата</label>
           <input
@@ -341,7 +423,7 @@ export function EntryForm(props: {
                 {transferPurpose === "repay_debt" && debtOnDate !== null && (
                   <>
                     {" "}
-                    На эту дату вы должны компании <span className="amount">{formatMoney(debtOnDate, "KZT")}</span>.
+                    На эту дату вы должны компании <span className="amount">{formatMoney(debtOnDate.i_owe, "KZT")}</span>.
                   </>
                 )}
                 {transferPurpose !== "repay_debt" && transferPurpose !== "move_own" && advanceOnDate !== null && (
@@ -417,6 +499,20 @@ export function EntryForm(props: {
           )}
           <TopupSummary topup={topup} feePayer={feePayer} />
         </>
+      )}
+
+      {type === "netting" && (
+        <p className="field__hint">
+          Обе стороны долга уменьшатся на эту сумму, деньги не двигаются, счёт не нужен.
+          {debtOnDate !== null && (
+            <>
+              {" "}
+              На эту дату компания должна вам <span className="amount">{formatMoney(debtOnDate.owe_me, "KZT")}</span>, вы
+              должны компании <span className="amount">{formatMoney(debtOnDate.i_owe, "KZT")}</span>: взаимозачёт не больше
+              меньшей из сторон.
+            </>
+          )}
+        </p>
       )}
 
       {type === "company_advance_return" && (
@@ -588,16 +684,27 @@ function useAdvanceOnDate(accountId: string, date: string, entryId?: string): nu
   return advance;
 }
 
-/** «Я должен компании» на дату для погашения долга в аванс: считает сервер (debt_on_date), пауза 250 мс. */
-function useDebtOnDate(active: boolean, date: string, entryId?: string): number | null {
-  const [debt, setDebt] = useState<number | null>(null);
+/** Подпись счёта: у перевода «откуда», у погашения долга откуда ушли или куда пришли деньги. */
+function accountLabel(type: FormType, direction: SettlementDirection | null): string {
+  if (type === "transfer") return "Откуда";
+  if (type === "settlement" && direction === "i_paid_company") return "С какого счёта";
+  if (type === "settlement" && direction === "company_paid_me") return "На какой счёт";
+  return "Счёт";
+}
+
+/** Обе стороны долга на дату (погашение, взаимозачёт): считает сервер (debt_on_date), пауза 250 мс. */
+function useDebtOnDate(active: boolean, date: string, entryId?: string): { owe_me: number; i_owe: number } | null {
+  const [debt, setDebt] = useState<{ owe_me: number; i_owe: number } | null>(null);
   useEffect(() => {
     setDebt(null);
     if (!active || !date) return;
     let live = true;
     const t = window.setTimeout(async () => {
       const { data, error } = await supabase.rpc("debt_on_date", { p_occurred_on: date, p_entry_id: entryId ?? null });
-      if (live && !error) setDebt((data as { i_owe_company_minor: number }).i_owe_company_minor);
+      if (live && !error) {
+        const d = data as { company_owes_me_minor: number; i_owe_company_minor: number };
+        setDebt({ owe_me: d.company_owes_me_minor, i_owe: d.i_owe_company_minor });
+      }
     }, 250);
     return () => {
       live = false;
@@ -618,6 +725,10 @@ function entryErrorText(
   if (error.message === "debt_overpay") {
     const d = errorDetails(error);
     return debtOverpayErrorText(d, isSelf(d));
+  }
+  if (error.message === "netting_too_big") {
+    const d = errorDetails(error);
+    return nettingTooBigErrorText(d, isSelf(d));
   }
   if (error.message === "entry_before_start") {
     const d = errorDetails(error);

@@ -25,6 +25,7 @@ const MESSAGES: Record<string, string> = {
   entry_type_not_supported: "Этот тип записи появится в следующей версии",
   entry_status_not_supported: "Черновики появятся вместе с быстрым вводом",
   debt_overpay: "Погасить можно не больше текущего долга",
+  netting_too_big: "Взаимозачёт не больше меньшей стороны долга",
   same_account_transfer: "Нельзя перевести на тот же счёт",
   cross_currency_transfer: "Нельзя перевести между счетами в разных валютах",
   advance_return_too_big: "Изъять можно не больше аванса на счёте на эту дату",

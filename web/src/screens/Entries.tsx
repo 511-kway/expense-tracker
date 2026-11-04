@@ -2,10 +2,18 @@ import { useEffect, useState, type ReactNode } from "react";
 import { supabase } from "../supabase";
 import { formatMoney } from "../money";
 import { formatDate } from "../dates";
-import { ENTRY_COLUMNS, TRANSFER_PURPOSES, entryTitle, formatSigned, type EntryRow } from "../entries";
+import { ENTRY_COLUMNS, SETTLEMENT_DIRECTIONS, TRANSFER_PURPOSES, entryTitle, formatSigned, type EntryRow } from "../entries";
 
 /** Эти типы правятся в форме; остальные появятся со своими тикетами. */
-const EDITABLE = new Set(["expense", "income", "transfer", "company_topup", "company_advance_return"]);
+export const EDITABLE = new Set([
+  "expense",
+  "income",
+  "transfer",
+  "company_topup",
+  "company_advance_return",
+  "settlement",
+  "netting",
+]);
 
 /**
  * Лента записей по датам, новые сверху. У каждой строки сумма и что запись сделала с авансом
@@ -69,10 +77,11 @@ export function Entries({ onEdit, onCreate }: { onEdit: (entry: EntryRow) => voi
   );
 }
 
-function EntryItem({ entry: e, onEdit }: { entry: EntryRow; onEdit?: () => void }) {
-  // Перевод не меняет итог моих денег: сумма без знака, стороны в подписи и эффектах.
+/** Строка записи ленты; её же показывает список погашений на экране «Расчёт с компанией». */
+export function EntryItem({ entry: e, onEdit }: { entry: EntryRow; onEdit?: () => void }) {
+  // Перевод и взаимозачёт не меняют итог моих денег: сумма без знака, стороны в подписи и эффектах.
   const amount =
-    e.type === "transfer"
+    e.type === "transfer" || e.type === "netting"
       ? formatMoney(e.amount_minor, e.currency)
       : formatSigned(
           e.balance_delta_minor !== 0
@@ -107,6 +116,9 @@ function meta(e: EntryRow): string {
     parts.push(`с «${e.account_name ?? "счёта"}» на «${e.to_account_name ?? "счёт"}»`);
     if (e.transfer_purpose) parts.push(TRANSFER_PURPOSES[e.transfer_purpose].toLowerCase());
   } else if (e.account_name) parts.push(e.account_name);
+  if (e.type === "settlement" && e.settlement_direction)
+    parts.push(SETTLEMENT_DIRECTIONS[e.settlement_direction].toLowerCase());
+  if (e.type === "netting") parts.push("обе стороны долга, без движения денег");
   if (e.type === "expense") {
     if (e.purpose === "work") parts.push("работа");
     else parts.push(e.source === "company" ? "личное, деньгами компании" : "личное");

@@ -131,7 +131,7 @@ export function Shell({
           )}
           <div key={`${current.id}:${revision}`} className="section__body">
             {current.id === "company" ? (
-              <CompanySettlement accountingStartDate={accountingStartDate} />
+              <CompanySettlement accountingStartDate={accountingStartDate} onEdit={(entry) => setSheet({ entry })} />
             ) : current.id === "accounts" ? (
               <Accounts accountingStartDate={accountingStartDate} />
             ) : current.id === "categories" ? (

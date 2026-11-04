@@ -244,7 +244,7 @@ setup_start(2026-11-01, owe_me=12000, i_owe=5000); create_account H1 start=2026-
 
 ### TC-BEFORE-START
 Как выше, затем expense H1 датой 2026-10-31.
-Ожидание: ошибка `entry_before_start`. То же для settlement без счёта датой раньше accounting_start_date.
+Ожидание: ошибка `entry_before_start`. То же для взаимозачёта (netting, без счёта) датой раньше accounting_start_date.
 
 ### TC-QUICK-CAPTURE (ADR-0009)
 create_account H1 total=100000 company=50000; KS total=10000 company=0.

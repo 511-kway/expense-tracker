@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { advanceReturnErrorText, debtOverpayErrorText, entryTitle, errorDetails, formatSigned, warningLines } from "./entries";
+import {
+  advanceReturnErrorText,
+  breakdownLabel,
+  debtOverpayErrorText,
+  entryTitle,
+  errorDetails,
+  formatSigned,
+  nettingTooBigErrorText,
+  warningLines,
+} from "./entries";
 
 const names = new Map([["a1", "Kaspi Gold"]]);
 
@@ -83,5 +92,73 @@ describe("debtOverpayErrorText", () => {
       "Не получится: погашение долга 3 ноября 2026 на 30 000 ₸ станет больше долга на ту дату (0 ₸). " +
         "Сначала измените или удалите это погашение.",
     );
+  });
+});
+
+describe("debtOverpayErrorText for «компания должна мне»", () => {
+  it("on the entry itself names what the company owes on that date", () => {
+    expect(debtOverpayErrorText({ side: "company_owes_me", available_minor: 2000000, amount_minor: 2500000 }, true)).toBe(
+      "Погасить можно не больше 20\u00a0000\u00a0₸: столько компания должна вам на эту дату.",
+    );
+  });
+});
+
+describe("nettingTooBigErrorText", () => {
+  const details = {
+    occurred_on: "2026-11-03",
+    available_minor: 1500000,
+    company_owes_me_minor: 1500000,
+    i_owe_company_minor: 2500000,
+    amount_minor: 2000000,
+  };
+
+  it("on the entry itself names the smaller side on that date", () => {
+    expect(nettingTooBigErrorText(details, true)).toBe(
+      "Взаимозачёт не больше меньшей стороны долга: на эту дату компания должна вам 15\u00a0000\u00a0₸, " +
+        "вы должны компании 25\u00a0000\u00a0₸.",
+    );
+  });
+
+  it("names the later взаимозачёт that a backdated change would break", () => {
+    expect(nettingTooBigErrorText(details, false)).toBe(
+      "Не получится: взаимозачёт 3 ноября 2026 на 20\u00a0000\u00a0₸ станет больше меньшей стороны долга на ту дату " +
+        "(15\u00a0000\u00a0₸). Сначала измените или удалите этот взаимозачёт.",
+    );
+  });
+});
+
+describe("breakdownLabel", () => {
+  const base = {
+    title: null,
+    category_name: null,
+    account_name: null,
+    to_account_name: null,
+    purpose: null,
+    source: null,
+    transfer_purpose: null,
+    settlement_direction: null,
+  } as const;
+
+  it("says what kind of entry moved the side of the debt", () => {
+    expect(breakdownLabel({ ...base, type: "adjustment", title: "Стартовый долг" })).toBe("Стартовый долг");
+    expect(breakdownLabel({ ...base, type: "expense", category_name: "Реклама", purpose: "work", account_name: "H1" })).toBe(
+      "Реклама: рабочая трата из своих, «H1»",
+    );
+    expect(
+      breakdownLabel({ ...base, type: "expense", category_name: "Кафе", purpose: "personal", source: "company", account_name: "H1" }),
+    ).toBe("Кафе: личное деньгами компании, «H1»");
+    expect(breakdownLabel({ ...base, type: "company_topup", account_name: "H1" })).toBe(
+      "Пополнение от компании: возмещение комиссии, «H1»",
+    );
+    expect(breakdownLabel({ ...base, type: "transfer", transfer_purpose: "take_advance", account_name: "H1" })).toBe(
+      "Взял из аванса себе, «H1»",
+    );
+    expect(breakdownLabel({ ...base, type: "transfer", transfer_purpose: "repay_debt", to_account_name: "KS" })).toBe(
+      "Погашение долга в аванс, «KS»",
+    );
+    expect(
+      breakdownLabel({ ...base, type: "settlement", settlement_direction: "company_paid_me", account_name: "H1" }),
+    ).toBe("Погашение долга: компания отдала мне, «H1»");
+    expect(breakdownLabel({ ...base, type: "netting" })).toBe("Взаимозачёт");
   });
 });

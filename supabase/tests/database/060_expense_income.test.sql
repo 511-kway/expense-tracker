@@ -296,9 +296,9 @@ select is(pg_temp.error_of($$ select public.create_entry(jsonb_build_object('typ
     'occurred_on', '2026-11-02', 'amount_minor', 100, 'currency', 'USD', 'account_id', pg_temp.acc('H1'))) $$),
   '{"code": "foreign_amount_not_supported", "detail": {"currency": "USD", "account_currency": "KZT"}}'::jsonb,
   'amounts in another currency wait for currency support');
-select is(pg_temp.error_of($$ select public.create_entry(jsonb_build_object('type', 'settlement',
+select is(pg_temp.error_of($$ select public.create_entry(jsonb_build_object('type', 'refund',
     'occurred_on', '2026-11-02', 'amount_minor', 100, 'account_id', pg_temp.acc('H1'))) $$),
-  '{"code": "entry_type_not_supported", "detail": {"type": "settlement"}}'::jsonb,
+  '{"code": "entry_type_not_supported", "detail": {"type": "refund"}}'::jsonb,
   'types of later tickets are rejected');
 select set_config('test.h1', pg_temp.acc('H1')::text, true);
 select set_config('test.entry', current_setting('test.first'), true);

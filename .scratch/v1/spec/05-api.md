@@ -20,7 +20,7 @@
 Создаёт запись любого типа. `payload` зависит от типа (поля в доке 02, матрица применимости). Общие поля:
 ```
 {
-  "type": "expense|income|transfer|company_topup|company_advance_return|settlement|adjustment|refund",
+  "type": "expense|income|transfer|company_topup|company_advance_return|settlement|netting|adjustment|refund",
   "status": "done|draft",            // по умолчанию done
   "occurred_on": "2026-11-03",
   "occurred_at": "2026-11-03T14:20:00+05:00",  // опционально
@@ -93,7 +93,7 @@
 Глобально: `company_owes_me_minor, i_owe_company_minor, net_minor` (нетто, знак показывает направление).
 
 ### v_settlement_breakdown
-Строки операций, формирующих каждую сторону долга: `entry_id, side (company_owes_me|i_owe_company), occurred_on, title, account, delta_minor`. Для раскрытия "из чего сложился долг".
+Строки операций, формирующих каждую сторону долга (запись × сторона, по журналу): `entry_id, side (company_owes_me|i_owe_company), type, occurred_on, occurred_at, created_at, seq, title, category_name, account_id, account_name, to_account_name, purpose, source, transfer_purpose, settlement_direction, amount_minor, currency, delta_minor, side_after_minor` (сторона после записи в порядке пересчёта). Для раскрытия "из чего сложился долг": стартовый долг и долговые корректировки, траты, возмещение комиссии пополнения, переводы `repay_debt`/`take_advance`, погашения и взаимозачёты.
 
 ### v_overview
 Агрегаты: `total_balance_minor, total_own_minor, total_company_advance_minor, personal_spend_period_minor` (период параметром или за текущий месяц).
@@ -124,7 +124,8 @@
 | `amount_not_positive` | сумма ≤ 0 | Сумма должна быть больше нуля |
 | `same_account_transfer` | откуда == куда | Нельзя перевести на тот же счёт |
 | `cross_currency_transfer` | перевод между счетами разной валюты | Нельзя перевести между счетами в разных валютах |
-| `debt_overpay` | settlement/repay больше долга | Вернуть можно не больше текущего долга |
+| `debt_overpay` | settlement/repay больше долга | Погасить можно не больше текущего долга |
+| `netting_too_big` | взаимозачёт больше меньшей стороны долга на дату | Взаимозачёт не больше меньшей стороны долга |
 | `advance_return_too_big` | изъятие аванса больше аванса на дату | Изъять можно не больше аванса на счёте на эту дату |
 | `fee_too_big` | комиссия пополнения не меньше суммы | Комиссия должна быть меньше суммы пополнения |
 | `refund_too_big` | возврат больше остатка исходной | Возврат больше суммы исходной траты |

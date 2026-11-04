@@ -133,7 +133,7 @@ ledger: i_owe_company -= k
 
 move_own (перекладываю свои деньги): только перемещение balance, выше. Больше ничего.
 
-move_company и top_up_advance (перекладываю деньги компании, пополнил аванс переводом): эффект одинаков.
+move_company (перекладываю деньги компании; назначения `top_up_advance` («пополнил аванс переводом») нет: убрано в spec.md, оно дублировало `move_company`):
 ```
 company_part = min(k, adv[a])
 adv[a] -= company_part; adv[to] += company_part
@@ -156,29 +156,39 @@ ledger: i_owe_company += company_part
 | transfer_purpose | Эффект |
 |---|---|
 | repay_debt | advance[to] += k, i_owe_company -= k (до нуля) |
-| top_up_advance / move_company | advance[a] -= company_part, advance[to] += company_part |
+| move_company | advance[a] -= company_part, advance[to] += company_part |
 | take_advance | advance[a] -= company_part, i_owe_company += company_part |
 | move_own | только перемещение остатка |
 
-### 4.6. settlement (взаимозачёт)
+### 4.6. settlement (погашение долга)
 
-Поля: `settlement_direction`, `amount_minor` (в тенге), опционально `account_id` (с какого счёта ушло или на какой пришло).
+Поля: `settlement_direction`, `amount_minor` (в тенге), обязательный `account_id` (с какого счёта ушло или на какой пришло; spec.md). Деньги от компании приходят на счёт как свои, аванс не меняется. Больше стороны долга на дату: `debt_overpay` (`{entry_id, occurred_on, side, available_minor, amount_minor}`).
 
 i_paid_company (я вернул компании):
 ```
 валидация: k <= i_owe_company (только до нуля)
 ledger: i_owe_company -= k
-if account_id: balance[a] -= amount_minor
+balance[a] -= amount_minor
 ```
 
 company_paid_me (компания вернула мне):
 ```
 валидация: k <= company_owes_me (только до нуля)
 ledger: company_owes_me -= k
-if account_id: balance[a] += amount_minor
+balance[a] += amount_minor   # свои деньги, adv не трогаем
 ```
 
-Переход через ноль запрещён. Вернуть можно не больше текущего долга в этом направлении.
+Переход через ноль запрещён. Погасить можно не больше текущего долга в этом направлении.
+
+### 4.6a. netting (взаимозачёт, spec.md)
+
+Поля: `amount_minor` (в тенге). Счёта нет, остатки и авансы не меняются.
+```
+валидация: k <= min(company_owes_me, i_owe_company) на момент записи (реплей)
+ledger: company_owes_me -= k
+ledger: i_owe_company -= k
+```
+Нарушение: `netting_too_big` (`{entry_id, occurred_on, available_minor, company_owes_me_minor, i_owe_company_minor, amount_minor}`).
 
 ### 4.7. adjustment (корректировка остатка)
 
@@ -280,7 +290,7 @@ recompute(user_id):
 - Порядок строго детерминированный: `occurred_on`, затем `occurred_at` (если есть), затем `created_at`, затем `seq` (монотонный счётчик вставки). Тайбрейк гарантирует стабильность при одинаковых датах.
 - `apply_entry` для операций, трогающих два счёта (transfer), обновляет `adv` обоих.
 - Для refund `apply_entry` берёт сплит родителя из `split[parent_entry_id]` (родитель раньше в порядке) и реверсит пропорционально.
-- Ограничения «до нуля» проверяются В РЕПЛЕЕ на момент каждой операции (ADR-0006): settlement и repay_debt не больше долга на эту дату, company_advance_return не больше аванса на эту дату, refund не больше остатка исходной. Нарушение = исключение с кодом ошибки и id операции, откат всей транзакции. Так ловятся правки и удаления задним числом.
+- Ограничения «до нуля» проверяются В РЕПЛЕЕ на момент каждой операции (ADR-0006): settlement и repay_debt не больше долга на эту дату, netting не больше меньшей стороны, company_advance_return не больше аванса на эту дату, refund не больше остатка исходной. Нарушение = исключение с кодом ошибки и id операции, откат всей транзакции. Так ловятся правки и удаления задним числом.
 
 ### Когда вызывается recompute
 
@@ -299,7 +309,7 @@ recompute(user_id):
 1. `amount_minor > 0` (для adjustment модуль, знак в `adjustment_sign`).
 2. transfer: `to_account_id` задан, `to_account_id <> account_id`, валюта обоих счетов совпадает.
 3. repay_debt: `amount_kzt <= текущий i_owe_company`.
-4. settlement i_paid_company: `amount_kzt <= текущий i_owe_company`. company_paid_me: `amount_kzt <= текущий company_owes_me`.
+4. settlement i_paid_company: `amount_kzt <= текущий i_owe_company`. company_paid_me: `amount_kzt <= текущий company_owes_me`. netting: `amount_kzt <= min(обе стороны)`.
 5. company_advance_return: `amount_kzt <= текущий card_advance[account]`.
 6. refund: `amount_kzt <= (parent.amount_kzt − уже возвращённое по parent)`; `parent` это expense; возврат на `parent.account`.
 7. Обязательные поля по типу (см. матрицу в доке 02).
