@@ -4,7 +4,9 @@ import { CompanySettlement } from "./CompanySettlement";
 import { Accounts, type AccountRow } from "./Accounts";
 import { Categories, type CategoryRow } from "./Categories";
 import { Entries } from "./Entries";
-import { EntryForm, type SaveResult } from "./EntryForm";
+import { EntryForm, type EntryPrefill, type SaveResult } from "./EntryForm";
+import { QuickCapture } from "./QuickCapture";
+import { Inbox, useInboxCount } from "./Inbox";
 import { SheetDialog } from "./form";
 import { RefundForm, refundParentOf, type RefundParent } from "./RefundForm";
 import { supabase } from "../supabase";
@@ -39,9 +41,13 @@ export function Shell({
   accountingStartDate: string;
 }) {
   const [current, setCurrent] = useState(sectionFromHash);
-  // Лист записи: новая (entry не задан) или правка. revision перемонтирует экран после сохранения.
-  const [sheet, setSheet] = useState<{ entry?: EntryRow; refundOf?: RefundParent } | null>(null);
+  // Лист записи: быстрый ввод (quick), новая полная (entry не задан, prefill из быстрого ввода)
+  // или правка. revision перемонтирует экран и обновляет бейдж инбокса после сохранения.
+  const [sheet, setSheet] = useState<
+    { quick?: boolean; entry?: EntryRow; refundOf?: RefundParent; prefill?: EntryPrefill } | null
+  >(null);
   const [revision, setRevision] = useState(0);
+  const inboxCount = useInboxCount(revision);
   const [toast, setToast] = useState<string | null>(null);
   const [notices, setNotices] = useState<string[]>([]);
 
@@ -74,6 +80,11 @@ export function Shell({
   const link = (s: Section) => (
     <a key={s.id} href={`#/${s.id}`} aria-current={s.id === current.id ? "page" : undefined}>
       {s.label}
+      {s.id === "inbox" && inboxCount > 0 && (
+        <span className="badge" aria-label={`, ждут внимания: ${inboxCount}`}>
+          {inboxCount}
+        </span>
+      )}
     </a>
   );
   const phoneSections = sections.filter((s) => s.phone);
@@ -103,7 +114,7 @@ export function Shell({
           <OwnershipMark />
           Трекер затрат
         </span>
-        <CaptureButton wide onClick={() => setSheet({})} />
+        <CaptureButton wide onClick={() => setSheet({ quick: true })} />
         <nav className="nav nav--side" aria-label="Разделы">
           {sections.map(link)}
         </nav>
@@ -139,7 +150,9 @@ export function Shell({
             ) : current.id === "categories" ? (
               <Categories />
             ) : current.id === "entries" ? (
-              <Entries onEdit={(entry) => setSheet({ entry })} onCreate={() => setSheet({})} />
+              <Entries onEdit={(entry) => setSheet({ entry })} onCreate={() => setSheet({ quick: true })} />
+            ) : current.id === "inbox" ? (
+              <Inbox onOpen={(entry) => setSheet({ entry })} onCapture={() => setSheet({ quick: true })} />
             ) : (
               <p className="empty">{current.empty}</p>
             )}
@@ -149,7 +162,14 @@ export function Shell({
 
       {sheet && (
         <EntrySheet
-          key={sheet.refundOf ? `refund:${sheet.refundOf.entry_id}` : (sheet.entry?.entry_id ?? "new")}
+          key={
+            sheet.refundOf
+              ? `refund:${sheet.refundOf.entry_id}`
+              : (sheet.entry?.entry_id ?? (sheet.quick ? "quick" : sheet.prefill ? "expanded" : "new"))
+          }
+          quick={sheet.quick}
+          prefill={sheet.prefill}
+          onExpand={(prefill) => setSheet({ prefill })}
           entry={sheet.entry}
           refundOf={sheet.refundOf}
           onRefund={(refundOf) => setSheet({ refundOf })}
@@ -166,14 +186,14 @@ export function Shell({
 
       <nav className="nav nav--bottom" aria-label="Разделы">
         {phoneSections.slice(0, 2).map(link)}
-        <CaptureButton onClick={() => setSheet({})} />
+        <CaptureButton onClick={() => setSheet({ quick: true })} />
         {phoneSections.slice(2).map(link)}
       </nav>
     </div>
   );
 }
 
-/** «Записать»: открывает лист записи траты или поступления. */
+/** «Записать»: открывает быстрый ввод траты; из него полная форма для любой записи. */
 function CaptureButton({ wide, onClick }: { wide?: boolean; onClick: () => void }) {
   return (
     <button className="capture" type="button" onClick={onClick} aria-label="Записать">
@@ -187,6 +207,9 @@ function CaptureButton({ wide, onClick }: { wide?: boolean; onClick: () => void 
  * или открытый из ленты) идёт своей формой: счёт и категория у него от траты.
  */
 function EntrySheet(props: {
+  quick?: boolean;
+  prefill?: EntryPrefill;
+  onExpand: (prefill: EntryPrefill) => void;
   entry?: EntryRow;
   refundOf?: RefundParent;
   onRefund: (parent: RefundParent) => void;
@@ -221,16 +244,27 @@ function EntrySheet(props: {
       </SheetDialog>
     );
   return (
-    <SheetDialog title={props.entry ? "Запись" : "Новая запись"} onClose={props.onClose}>
+    <SheetDialog
+      title={props.quick ? "Быстрая трата" : props.entry?.status === "draft" ? "Черновик" : props.entry ? "Запись" : "Новая запись"}
+      onClose={props.onClose}
+    >
       {refs === null ? (
         <p className="muted" aria-busy="true">Загружаем счета и категории…</p>
       ) : refs === "error" ? (
         <p className="error" role="alert">
           Не получилось загрузить счета и категории. Закройте и откройте форму снова.
         </p>
+      ) : props.quick ? (
+        <QuickCapture
+          accounts={refs.accounts}
+          accountingStartDate={props.accountingStartDate}
+          onSaved={props.onSaved}
+          onExpand={props.onExpand}
+        />
       ) : (
         <EntryForm
           entry={props.entry}
+          prefill={props.prefill}
           accounts={refs.accounts}
           categories={refs.categories}
           accountingStartDate={props.accountingStartDate}

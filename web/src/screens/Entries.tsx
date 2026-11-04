@@ -92,8 +92,9 @@ export function Entries({ onEdit, onCreate }: { onEdit: (entry: EntryRow) => voi
 /** Строка записи ленты; её же показывает список погашений на экране «Расчёт с компанией». */
 export function EntryItem({ entry: e, onEdit }: { entry: EntryRow; onEdit?: () => void }) {
   // Перевод и взаимозачёт не меняют итог моих денег: сумма без знака, стороны в подписи и эффектах.
+  // Черновик ещё ничего не сдвинул: сумма без знака.
   const amount =
-    e.type === "transfer" || e.type === "netting"
+    e.type === "transfer" || e.type === "netting" || e.status === "draft"
       ? formatMoney(e.amount_minor, e.currency)
       : e.balance_delta_minor !== 0
         ? // Остаток двигается в валюте счёта: тенговая карта списывает тенговый эквивалент.
@@ -133,7 +134,9 @@ function meta(e: EntryRow): string {
     parts.push(SETTLEMENT_DIRECTIONS[e.settlement_direction].toLowerCase());
   if (e.type === "netting") parts.push("обе стороны долга, без движения денег");
   if (e.type === "adjustment") parts.push(adjustmentLabel(e));
+  if (e.status === "draft") parts.unshift(e.source_pending ? "черновик, источник?" : "черновик");
   if (e.type === "expense") {
+    if (e.status === "done" && !e.category_id) parts.push("без категории");
     if (e.purpose === "work") parts.push("работа");
     else parts.push(e.source === "company" ? "личное, деньгами компании" : "личное");
     if (e.refunded_minor > 0)

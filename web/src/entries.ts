@@ -59,6 +59,8 @@ export type EntryRow = {
   rate: number | null;
   rate_source: "nbk" | "manual" | "derived" | null;
   account_currency: string | null;
+  /** Черновик быстрого ввода ждёт ответа «чьими деньгами» (ADR-0009). */
+  source_pending: boolean;
 };
 
 export type AdjustmentTarget = "balance" | DebtSide;
@@ -114,7 +116,7 @@ export const TRANSFER_PURPOSES: Record<TransferPurpose, string> = {
 };
 
 export const ENTRY_COLUMNS =
-  "entry_id, type, status, occurred_on, amount_minor, currency, account_id, account_name, category_id, category_name, purpose, source, comment, title, balance_delta_minor, advance_delta_minor, company_owes_me_delta_minor, i_owe_company_delta_minor, fee_minor, fee_payer, transfer_purpose, to_account_id, to_account_name, to_balance_delta_minor, to_advance_delta_minor, settlement_direction, adjustment_target, adjustment_sign, adjustment_mode, adjustment_affects_advance, parent_entry_id, parent_occurred_on, parent_amount_minor, parent_title, refunded_minor, amount_kzt_minor, rate, rate_source, account_currency";
+  "entry_id, type, status, occurred_on, amount_minor, currency, account_id, account_name, category_id, category_name, purpose, source, comment, title, balance_delta_minor, advance_delta_minor, company_owes_me_delta_minor, i_owe_company_delta_minor, fee_minor, fee_payer, transfer_purpose, to_account_id, to_account_name, to_balance_delta_minor, to_advance_delta_minor, settlement_direction, adjustment_target, adjustment_sign, adjustment_mode, adjustment_affects_advance, parent_entry_id, parent_occurred_on, parent_amount_minor, parent_title, refunded_minor, amount_kzt_minor, rate, rate_source, account_currency, source_pending";
 
 /** Предупреждение из ответа create_entry / update_entry / delete_entry. */
 export type EntryWarning =

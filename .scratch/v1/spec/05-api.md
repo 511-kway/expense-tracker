@@ -66,8 +66,11 @@
 ### delete_entry(entry_id) → { ok }
 Удаляет запись (ledger каскадом), вызывает `recompute`.
 
-### promote_draft(entry_id, payload) → { entry_id }
-Дозаполняет черновик (в том числе источник), ставит `status = done`, вызывает `recompute`.
+### quick_capture(payload) → { ok, entry_id, status, source_pending, warnings }
+Быстрый ввод траты (ADR-0009, тикет 15): `amount_minor`, `account_id`, `purpose`, `title`; по желанию `occurred_on` (по умолчанию сегодня по Алматы), `occurred_at`, `category_id`, `comment`, `source` и поля валюты как у `create_entry`. Тип всегда `expense`, присланные `type` и `status` отбрасываются. Работа на любом счёте и личное на счёте без аванса на дату (или с присланным источником) = `done` с пересчётом; личное на счёте с авансом = `draft`, `source = null`, `source_pending = true`, без пересчёта. Черновик проверяется как учтённая трата «своими» (сумма, счёт, даты старта, валюта), поэтому дозаполнить остаётся только источник. Категория не обязательна.
+
+### promote_draft(entry_id, payload) → { ok, entry_id, status, warnings }
+Дозаполняет черновик (в том числе источник), ставит `status = done`, вызывает `recompute`. Payload тот же, что у `update_entry` (полная замена полей), `status` отбрасывается; категория не обязательна (учтённая трата без категории остаётся в инбоксе). Не черновик: `entry_not_draft`. Предпросмотр: `preview_entry(payload, entry_id)` для черновика зовёт `promote_draft`.
 
 ### convert_note_to_entry(note_id, payload) → { entry_id }
 Создаёт запись из заметки: вставляет `entries` с `source_note_id = note_id`, ставит заметке `status = processed`, `linked_entry_id`. Вызывает `recompute`.
@@ -88,6 +91,9 @@
 
 ### v_account_balances
 По каждому счёту: `account_id, name, bank, type, currency, balance_minor, advance_minor, own_minor, is_archived`. Выводится из ledger.
+
+### v_inbox, v_inbox_count
+Инбокс (тикет 15): `kind` (`draft` черновик, `no_category` учтённая трата без категории; тикет 16 добавит `note`), `entry_id, occurred_on, amount_minor, currency, account_id, account_name, purpose, title, comment, source_pending, created_at`. `v_inbox_count.items` = число элементов для бейджа.
 
 ### v_company_settlement
 Глобально: `company_owes_me_minor, i_owe_company_minor, net_minor` (нетто, знак показывает направление).

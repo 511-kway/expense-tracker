@@ -94,6 +94,15 @@ const PURPOSE_ORDER: TransferPurpose[] = ["move_own", "move_company", "repay_deb
 
 export type SaveResult = { message: string; warnings: EntryWarning[] };
 
+/** Что перенести из быстрого ввода в полную форму («развернуть», док 04, 4.1): поля как ввели. */
+export type EntryPrefill = {
+  amount: string;
+  accountId: string;
+  purpose: Purpose | null;
+  title: string;
+  date: string;
+};
+
 /**
  * Форма записи (док 04, 4.2): трата, поступление, перевод, пополнение от компании, изъятие
  * аванса, погашение долга (счёт обязателен), взаимозачёт (без счёта) и корректировка (остаток
@@ -110,8 +119,12 @@ export function EntryForm(props: {
   onSaved: (result: SaveResult) => void;
   /** Открыть возврат покупки по этой трате. */
   onRefund?: (parent: RefundParent) => void;
+  /** Новая трата, развёрнутая из быстрого ввода. */
+  prefill?: EntryPrefill;
 }) {
-  const { entry, accountingStartDate } = props;
+  const { entry, accountingStartDate, prefill } = props;
+  // Черновик быстрого ввода: «Учесть трату» зовёт promote_draft, категория по желанию (ADR-0009).
+  const isDraft = entry?.status === "draft";
   const refundParent = entry?.type === "expense" ? refundParentOf(entry) : null;
   const accounts = props.accounts.filter((a) => !a.is_archived || a.account_id === entry?.account_id);
   const categories = props.categories.filter((c) => !c.is_archived || c.id === entry?.category_id);
@@ -123,16 +136,20 @@ export function EntryForm(props: {
   const isTopup = entry?.type === "company_topup";
   // Пополнение на правке открывается способом «пришло и комиссия»: пришло = движение остатка по журналу.
   const [amount, setAmount] = useState(
-    entry ? minorToAmountInput(isTopup ? entry.balance_delta_minor : entry.amount_minor) : "",
+    entry ? minorToAmountInput(isTopup ? entry.balance_delta_minor : entry.amount_minor) : (prefill?.amount ?? ""),
   );
   const [feeStyle, setFeeStyle] = useState<FeeStyle>("arrived_fee");
   const [second, setSecond] = useState(isTopup && entry?.fee_minor ? minorToAmountInput(entry.fee_minor) : "");
   const [feePayer, setFeePayer] = useState<Source | null>(entry?.fee_payer ?? null);
-  const [accountId, setAccountId] = useState(entry?.account_id ?? (accounts.length === 1 ? accounts[0]!.account_id : ""));
-  const [purpose, setPurpose] = useState<Purpose | null>(entry?.purpose ?? null);
+  const [accountId, setAccountId] = useState(
+    entry?.account_id ?? (prefill?.accountId || (accounts.length === 1 ? accounts[0]!.account_id : "")),
+  );
+  const [purpose, setPurpose] = useState<Purpose | null>(entry?.purpose ?? prefill?.purpose ?? null);
   const [source, setSource] = useState<Source | null>(entry?.source ?? null);
   const [categoryId, setCategoryId] = useState(entry?.category_id ?? "");
-  const [date, setDate] = useState(entry?.occurred_on ?? (today < accountingStartDate ? accountingStartDate : today));
+  const [date, setDate] = useState(
+    entry?.occurred_on ?? prefill?.date ?? (today < accountingStartDate ? accountingStartDate : today),
+  );
   const isTransfer = entry?.type === "transfer";
   const [toAccountId, setToAccountId] = useState(entry?.to_account_id ?? "");
   const [transferPurpose, setTransferPurpose] = useState<TransferPurpose | null>(entry?.transfer_purpose ?? null);
@@ -143,7 +160,7 @@ export function EntryForm(props: {
   const [adjMode, setAdjMode] = useState<AdjustmentMode | null>(entry?.adjustment_mode ?? null);
   // «Чьи деньги» у корректировки остатка: деньги компании = «меняет аванс».
   const [adjMoney, setAdjMoney] = useState<Source>(entry?.adjustment_affects_advance ? "company" : "own");
-  const [title, setTitle] = useState(entry?.title ?? "");
+  const [title, setTitle] = useState(entry?.title ?? prefill?.title ?? "");
   const [comment, setComment] = useState(entry?.comment ?? "");
   const [currency, setCurrency] = useState(entry?.currency ?? "KZT");
   const [conversion, setConversion] = useState<ConversionInput>(conversionFromEntry(entry));
@@ -236,7 +253,7 @@ export function EntryForm(props: {
       if (topup.amounts.fee_payer_needed && !feePayer) return "Выберите, кто заплатил комиссию.";
     }
     if (type === "expense" && !purpose) return "Выберите: личное или работа.";
-    if (type === "expense" && !categoryId) return "Выберите категорию.";
+    if (type === "expense" && !categoryId && !isDraft) return "Выберите категорию.";
     if (sourceNeeded && !source) return "Выберите, чьими деньгами оплачено.";
     if (!date) return "Выберите дату.";
     if (type === "transfer" && foreignAccount && transferPurpose !== "move_own")
@@ -255,8 +272,8 @@ export function EntryForm(props: {
       account_id: hasAccount ? accountId : null,
       category_id: type === "expense" || type === "income" ? categoryId || null : null,
       comment: comment.trim() || null,
-      // Заголовок правит только форма корректировки; у остальных типов он сохраняется как был.
-      title: type === "adjustment" ? title.trim() || null : (entry?.title ?? null),
+      // Заголовок правят трата, поступление и корректировка; у остальных он сохраняется как был.
+      title: title.trim() || null,
     };
     if (type === "expense") {
       payload.purpose = purpose;
@@ -305,13 +322,15 @@ export function EntryForm(props: {
     const { payload, amountMinor } = built;
 
     setBusy(true);
-    const { data, error } = entry
-      ? await supabase.rpc("update_entry", { p_entry_id: entry.entry_id, p_payload: payload })
-      : await supabase.rpc("create_entry", { p_payload: payload });
+    const { data, error } = isDraft
+      ? await supabase.rpc("promote_draft", { p_entry_id: entry.entry_id, p_payload: payload })
+      : entry
+        ? await supabase.rpc("update_entry", { p_entry_id: entry.entry_id, p_payload: payload })
+        : await supabase.rpc("create_entry", { p_payload: payload });
     setBusy(false);
     if (error) return setFailure(entryErrorText(error, (d) => isSelfConflict(d, amountMinor)));
     props.onSaved({
-      message: entry ? "Запись сохранена" : SAVED[type],
+      message: isDraft ? "Трата учтена" : entry ? "Запись сохранена" : SAVED[type],
       warnings: ((data as { warnings?: EntryWarning[] }).warnings ?? []) as EntryWarning[],
     });
   }
@@ -336,6 +355,12 @@ export function EntryForm(props: {
 
   return (
     <form className="account-form entry-form" onSubmit={submit} noValidate>
+      {isDraft && (
+        <p className="draft-note">
+          Черновик из быстрого ввода: на остаток, аванс и долг не влияет, пока вы его не учтёте.
+          {entry.source_pending && " Уточните, чьими деньгами оплачено."}
+        </p>
+      )}
       {refundParent && props.onRefund && (
         <div className="refund-action">
           <p className="muted">
@@ -717,14 +742,14 @@ export function EntryForm(props: {
         </>
       )}
 
-      {type === "adjustment" && (
+      {(type === "adjustment" || type === "expense" || type === "income") && (
         <div className="field">
           <label htmlFor="entry-title">Название, по желанию</label>
           <input
             id="entry-title"
             type="text"
             autoComplete="off"
-            placeholder="Например, сверка с выпиской"
+            placeholder={type === "adjustment" ? "Например, сверка с выпиской" : "Например, такси до офиса"}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
           />
@@ -785,9 +810,9 @@ export function EntryForm(props: {
 
       {(type === "expense" || type === "income") && (
         <div className="field">
-          <label htmlFor="entry-category">{type === "expense" ? "Категория" : "Категория, по желанию"}</label>
+          <label htmlFor="entry-category">{type === "expense" && !isDraft ? "Категория" : "Категория, по желанию"}</label>
           <select id="entry-category" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-            <option value="">{type === "expense" ? "Выберите категорию" : "Без категории"}</option>
+            <option value="">{type === "expense" && !isDraft ? "Выберите категорию" : "Без категории"}</option>
             {categories.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -817,7 +842,7 @@ export function EntryForm(props: {
 
       <div className="account-form__actions">
         <button className="button button--primary" type="submit" disabled={busy}>
-          {entry ? "Сохранить" : SUBMIT[type]}
+          {isDraft ? "Учесть трату" : entry ? "Сохранить" : SUBMIT[type]}
         </button>
         {entry && (
           <div className="account-form__secondary">
@@ -841,7 +866,7 @@ export function EntryForm(props: {
   );
 }
 
-function ChoiceOption(props: {
+export function ChoiceOption(props: {
   name: string;
   checked: boolean;
   onChange: () => void;
@@ -861,7 +886,7 @@ function ChoiceOption(props: {
 }
 
 /** Нужен ли вопрос «чьими деньгами»: решает сервер (expense_source_needed), пауза 250 мс. */
-function useSourceNeeded(accountId: string, date: string, entryId?: string): { needed: boolean; advance: number } | null {
+export function useSourceNeeded(accountId: string, date: string, entryId?: string): { needed: boolean; advance: number } | null {
   const [state, setState] = useState<{ needed: boolean; advance: number } | null>(null);
   useEffect(() => {
     setState(null);

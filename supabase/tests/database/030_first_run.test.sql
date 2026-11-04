@@ -2,7 +2,7 @@
 -- Суммы в тиынах: 12 000 ₸ = 1 200 000.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(17);
+select plan(19);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'owner@example.com'),
@@ -95,15 +95,21 @@ select throws_ok($$ select public.setup_start('2026-11-01', 100, 0) $$, '42501',
 reset role;
 
 -- Пересчёт идёт по дате, затем времени (пустое последним), времени создания, номеру вставки;
--- черновики не входят. Здесь фикстура от postgres: черновиков до тикета 15 нет, а create_entry
--- сразу отклонил бы минус, вставленный раньше плюса (так и надо, но порядок ввода тогда не проверить).
+-- черновики не входят. Учтённые записи здесь фикстура от postgres: create_entry сразу отклонил бы
+-- минус, вставленный раньше плюса (так и надо, но порядок ввода тогда не проверить). Черновик
+-- настоящий, из быстрого ввода: личная трата 3 000 ₸ со счёта с авансом ждёт «источник?».
 -- У владельца сейчас «я должен компании» = 5 000 ₸.
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
+select public.create_account(p_name => 'H1', p_type => 'card', p_start_date => '2026-11-01',
+  p_total_minor => 1000000, p_company_minor => 500000);
+select is(public.quick_capture(jsonb_build_object('occurred_on', '2026-11-02', 'amount_minor', 300000,
+    'account_id', (select account_id from public.v_account_balances where name = 'H1'),
+    'purpose', 'personal', 'title', 'Такси')) ->> 'status',
+  'draft', 'quick personal expense on an account with advance waits as a draft');
+reset role;
 insert into public.entries (user_id, type, status, occurred_on, occurred_at, created_at, amount_minor,
                             amount_kzt_minor, adjustment_mode, adjustment_sign, adjustment_target, in_analytics)
 values
-  -- черновик на минус всей стороны в пересчёт не входит
-  ('00000000-0000-0000-0000-00000000000a', 'adjustment', 'draft', '2026-11-02', null, now(), 500000,
-   500000, 'plug_hidden', -1, 'i_owe_company', false),
   -- вставлена раньше, но датой позже: −8 000 ₸ возможен только после +5 000 ₸ от 03.11
   ('00000000-0000-0000-0000-00000000000a', 'adjustment', 'done', '2026-11-04', null, now(), 800000,
    800000, 'plug_hidden', -1, 'i_owe_company', false),
@@ -113,7 +119,9 @@ select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
 select public.recompute();
 select results_eq($$ select * from pg_temp.settlement() $$,
   $$ values (1200000::bigint, 200000::bigint, 1000000::bigint) $$,
-  'replay follows the real date, not the input order; drafts are left out');
+  'replay follows the real date, not the input order');
+select is((select balance_minor from public.v_account_balances where name = 'H1'), 1000000::bigint,
+  'replay leaves the draft out');
 reset role;
 
 -- Одна дата 05.11: запись со временем идёт раньше записи без времени, даже если создана позже.
