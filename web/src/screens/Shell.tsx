@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { OwnershipMark } from "./OwnershipMark";
+import { CompanySettlement } from "./CompanySettlement";
 
 type Section = { id: string; label: string; title: string; empty: string; phone: boolean };
 
@@ -8,7 +9,7 @@ const sections: Section[] = [
   { id: "overview", label: "Обзор", title: "Обзор", empty: "Счетов пока нет. Добавьте первый счёт, и здесь появятся остаток, свои деньги и аванс.", phone: true },
   { id: "entries", label: "Записи", title: "Записи", empty: "Записей пока нет. Запишите первую трату.", phone: true },
   { id: "inbox", label: "Инбокс", title: "Инбокс", empty: "Инбокс пуст: черновиков, записей без категории и новых заметок нет.", phone: true },
-  { id: "company", label: "С компанией", title: "Расчёт с компанией", empty: "Стартовый долг ещё не задан. Здесь будут «компания должна мне», «я должен компании» и итог с компанией.", phone: true },
+  { id: "company", label: "С компанией", title: "Расчёт с компанией", empty: "", phone: true },
   { id: "accounts", label: "Счета", title: "Счета", empty: "Счетов пока нет. Добавьте карту, банковский счёт или наличные.", phone: false },
 ];
 
@@ -17,7 +18,17 @@ function sectionFromHash(): Section {
   return sections.find((s) => s.id === id) ?? sections[0]!;
 }
 
-export function Shell({ email, name, onSignOut }: { email: string; name: string | null; onSignOut: () => void }) {
+export function Shell({
+  email,
+  name,
+  onSignOut,
+  accountingStartDate,
+}: {
+  email: string;
+  name: string | null;
+  onSignOut: () => void;
+  accountingStartDate: string;
+}) {
   const [current, setCurrent] = useState(sectionFromHash);
 
   useEffect(() => {
@@ -66,7 +77,11 @@ export function Shell({ email, name, onSignOut }: { email: string; name: string 
       <main className="shell__main">
         <section className="section" aria-labelledby="section-title">
           <h1 id="section-title">{current.title}</h1>
-          <p className="empty">{current.empty}</p>
+          {current.id === "company" ? (
+            <CompanySettlement accountingStartDate={accountingStartDate} />
+          ) : (
+            <p className="empty">{current.empty}</p>
+          )}
         </section>
       </main>
 

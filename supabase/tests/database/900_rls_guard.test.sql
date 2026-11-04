@@ -14,12 +14,12 @@ with data_tables as (
     and c.relname <> 'app_users'  -- лист ожидания: RLS без политик, только через RPC
 )
 select is(
-  array(select relname::text from data_tables
+  array(select relname::text from data_tables d
         where not relrowsecurity
-           or exists (select 1 from pg_policy p where p.polrelid = oid
+           or exists (select 1 from pg_policy p where p.polrelid = d.oid
                       and (coalesce(pg_get_expr(p.polqual, p.polrelid), '') not like '%is_allowed()%'
                         or coalesce(pg_get_expr(p.polwithcheck, p.polrelid), 'is_allowed()') not like '%is_allowed()%'))
-           or not exists (select 1 from pg_policy p where p.polrelid = oid)
+           or not exists (select 1 from pg_policy p where p.polrelid = d.oid)
         order by 1),
   '{}'::text[],
   'every table with user_id has RLS with is_allowed() in every policy');

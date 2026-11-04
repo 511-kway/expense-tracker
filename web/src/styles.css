@@ -433,3 +433,159 @@ h2 {
     animation: none !important;
   }
 }
+
+/* Поля: подсказка, сумма со знаком валюты, цветная метка стороны */
+.field__hint {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.money-input {
+  position: relative;
+  display: grid;
+}
+
+.money-input input {
+  padding-right: 2.25rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.money-input span {
+  position: absolute;
+  top: 50%;
+  right: 0.875rem;
+  transform: translateY(-50%);
+  color: var(--ink-muted);
+  pointer-events: none;
+}
+
+.swatch {
+  display: inline-block;
+  width: 0.625rem;
+  height: 0.625rem;
+  margin-right: 0.5rem;
+  border-radius: 2px;
+  vertical-align: 0.05em;
+}
+
+.swatch--own {
+  background: var(--own);
+}
+
+.swatch--company {
+  background: var(--company);
+}
+
+/* Мастер первого запуска */
+.first-run {
+  gap: 1.75rem;
+}
+
+.first-run__debt {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.first-run__debt legend {
+  padding: 0 0 0.25rem;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+/* Расчёт с компанией: итог над двумя встречными полосами от центра */
+.settlement {
+  display: grid;
+  gap: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.settlement__net {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.settlement__total {
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.settlement__total .currency {
+  font-size: var(--text-xl);
+  font-weight: 400;
+}
+
+.settlement__total.is-negative {
+  color: var(--negative);
+}
+
+.debt-bars {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  height: 1rem;
+  border-inline: 0;
+  background: linear-gradient(var(--line), var(--line)) center / 2px 100% no-repeat;
+}
+
+.debt-bars__half {
+  display: flex;
+}
+
+.debt-bars__half--company {
+  justify-content: flex-end;
+}
+
+.debt-bars__half span {
+  height: 100%;
+  border-radius: var(--radius-bar);
+  transition: width 200ms ease;
+}
+
+.debt-bars__half--company span {
+  background: var(--company);
+}
+
+.debt-bars__half--own span {
+  background: var(--own);
+}
+
+.debt-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin: 0;
+}
+
+.debt-sides__side {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  align-items: end;
+  gap: 0.25rem;
+}
+
+.debt-sides__side--own {
+  text-align: right;
+}
+
+.debt-sides dt {
+  font-size: var(--text-sm);
+  text-wrap: balance;
+  color: var(--ink-muted);
+}
+
+.debt-sides dd {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.settlement__since {
+  font-size: var(--text-sm);
+}
