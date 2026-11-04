@@ -4,6 +4,11 @@ const MINUS = "−";
 const SUFFIX_SIGNS: Record<string, string> = { KZT: "₸", EUR: "€", RUB: "₽", TRY: "₺" };
 const PREFIX_SIGNS: Record<string, string> = { USD: "$" };
 
+/** Убирает пробелы и неразрывные пробелы (разделители тысяч). */
+function compact(text: string): string {
+  return text.replace(/\s/g, "");
+}
+
 function groupThousands(digits: string): string {
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, NBSP);
 }
@@ -16,9 +21,9 @@ function groupThousands(digits: string): string {
 export function formatMoney(minor: number, currency: string): string {
   if (!Number.isSafeInteger(minor)) throw new RangeError(`not whole minor units: ${minor}`);
   const abs = Math.abs(minor);
-  const major = Math.trunc(abs / 100);
-  const kopecks = abs % 100;
-  const fraction = kopecks === 0 ? "" : `,${String(kopecks).padStart(2, "0")}`;
+  const minorPart = abs % 100;
+  const major = (abs - minorPart) / 100;
+  const fraction = minorPart === 0 ? "" : `,${String(minorPart).padStart(2, "0")}`;
   const number = `${groupThousands(String(major))}${fraction}`;
   const sign = minor < 0 ? MINUS : "";
 
@@ -32,9 +37,9 @@ export type AmountInputError = "empty" | "invalid" | "too_many_decimals";
 
 /** Текст из поля суммы → минимальные единицы, без float. */
 export function parseAmountInput(text: string): ParsedAmount {
-  const compact = text.replace(/[\s\u00a0]/g, "");
-  if (compact === "") return { ok: false, error: "empty" };
-  const match = /^(\d+)(?:[.,](\d*))?$/.exec(compact);
+  const digits = compact(text);
+  if (digits === "") return { ok: false, error: "empty" };
+  const match = /^(\d+)(?:[.,](\d*))?$/.exec(digits);
   if (!match) return { ok: false, error: "invalid" };
   const whole = match[1] ?? "";
   const fraction = match[2] ?? "";
@@ -46,8 +51,7 @@ export function parseAmountInput(text: string): ParsedAmount {
 
 /** Текст поля суммы при наборе → тот же текст с разделителем тысяч. */
 export function formatAmountInput(text: string): string {
-  const compact = text.replace(/[\s ]/g, "");
-  const match = /^(\d*)([.,]\d*)?$/.exec(compact);
+  const match = /^(\d*)([.,]\d*)?$/.exec(compact(text));
   if (!match) return text;
   return `${groupThousands(match[1] ?? "")}${match[2] ?? ""}`;
 }

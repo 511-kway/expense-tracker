@@ -14,13 +14,9 @@ supabase stop
 Фронт (React + Vite, Node нужен только для сборки):
 
 ```bash
-cd web
-npm ci
-# ключ из `supabase status -o env` (ANON_KEY)
-printf 'VITE_SUPABASE_URL=http://127.0.0.1:54321\nVITE_SUPABASE_ANON_KEY=<ANON_KEY>\n' > .env.local
-npm run dev        # http://127.0.0.1:5173, только локальный адрес
-npm test           # тесты фронта (vitest)
-npm run typecheck
+./scripts/web-dev.sh   # http://127.0.0.1:5173: ставит зависимости, берёт ключ из `supabase status`, запускает Vite
+cd web && npm test     # тесты фронта (vitest)
+cd web && npm run typecheck
 ```
 
 Studio, API и фронт доступны с вашего компьютера через SSH-туннель:
