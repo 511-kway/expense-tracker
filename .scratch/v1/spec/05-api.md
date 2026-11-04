@@ -48,8 +48,8 @@
 
 Единицы: РЕШЕНО, клиент шлёт и получает суммы только в minor (целое). Отображение делит на 100.
 
-### preview_entry(payload) → { deltas, before, after, warnings }
-Тот же payload, что `create_entry` (или `entry_id` плюс payload для правки). Валидирует, применяет, делает `recompute`, сравнивает счётчики до и после, откатывает. Ничего не сохраняет (ADR-0010).
+### preview_entry(payload, entry_id = null) → { ok, entry_id, status, warnings, accounts, before, after, deltas }
+Тот же payload, что `create_entry` (или `entry_id` плюс payload для правки). Зовёт сам `create_entry` / `update_entry` (та же проверка и `recompute`), сравнивает счётчики до и после, откатывает. Ничего не сохраняет (ADR-0010). `accounts`: затронутые счета `{account_id, name, currency}`; `before`/`after`/`deltas`: `{accounts: {<account_id>: {balance_minor, advance_minor, own_minor}}, company_owes_me_minor, i_owe_company_minor}`. Ошибки те же, что у сохранения.
 
 ### register_login() → { allowed }
 Зовётся фронтом сразу после входа. Upsert в `app_users` по email из JWT, привязка `user_id`, счётчик попыток. Если `allowed = false`, фронт показывает «Добавили вас в лист ожидания» и делает sign out (ADR-0007).

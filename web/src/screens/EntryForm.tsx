@@ -24,6 +24,7 @@ import { MoneyField } from "./form";
 import type { AccountRow } from "./Accounts";
 import type { CategoryRow } from "./Categories";
 import { refundParentOf, type RefundParent } from "./RefundForm";
+import { EffectPreview, useEntryPreview } from "./EntryPreview";
 
 type FormType =
   | "expense"
@@ -146,6 +147,7 @@ export function EntryForm(props: {
   const [failure, setFailure] = useState<string | null>(null);
 
   const account = accounts.find((a) => a.account_id === accountId);
+  const accountNames = new Map(props.accounts.map((a) => [a.account_id, a.name]));
   // «Куда»: свои счета той же валюты, без счёта «откуда» (spec.md, история 36).
   const toAccounts = accounts.filter(
     (a) => a.account_id !== accountId && (!account || a.currency === account.currency),
@@ -187,34 +189,36 @@ export function EntryForm(props: {
     return d.occurred_on === date && d.amount_minor === amountMinor;
   }
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setFailure(null);
+  /**
+   * Ввод формы → payload create_entry / update_entry, или что ещё не заполнено. Тот же payload
+   * уходит в предпросмотр, поэтому он считает ровно то, что запишется.
+   */
+  function build(): { payload: Record<string, unknown>; amountMinor: number } | string {
     const parsed = parseAmountInput(amount);
     if (!parsed.ok)
-      return setFailure(parsed.error === "empty" ? "Введите сумму." : "Введите сумму цифрами, копейки не больше двух знаков.");
-    if (parsed.minor === 0) return setFailure("Сумма должна быть больше нуля.");
-    if (hasAccount && !accountId) return setFailure(type === "transfer" ? "Выберите, откуда перевод." : "Выберите счёт.");
-    if (type === "settlement" && !direction) return setFailure("Выберите, кто кому отдал деньги.");
-    if (type === "adjustment" && !adjSign) return setFailure("Выберите: плюс или минус.");
+      return parsed.error === "empty" ? "Введите сумму." : "Введите сумму цифрами, копейки не больше двух знаков.";
+    if (parsed.minor === 0) return "Сумма должна быть больше нуля.";
+    if (hasAccount && !accountId) return type === "transfer" ? "Выберите, откуда перевод." : "Выберите счёт.";
+    if (type === "settlement" && !direction) return "Выберите, кто кому отдал деньги.";
+    if (type === "adjustment" && !adjSign) return "Выберите: плюс или минус.";
     if (type === "adjustment" && !isDebtAdjustment && !adjMode)
-      return setFailure("Выберите, где видна корректировка: скрыта или в разрезах трат.");
+      return "Выберите, где видна корректировка: скрыта или в разрезах трат.";
     if (type === "transfer") {
-      if (!toAccount) return setFailure("Выберите, куда перевод.");
-      if (!transferPurpose) return setFailure("Выберите назначение перевода.");
-      if (!feeParsed.ok) return setFailure("Введите комиссию цифрами, копейки не больше двух знаков.");
-      if (hasFee && !feePayer) return setFailure("Выберите, кто платит комиссию.");
+      if (!toAccount) return "Выберите, куда перевод.";
+      if (!transferPurpose) return "Выберите назначение перевода.";
+      if (!feeParsed.ok) return "Введите комиссию цифрами, копейки не больше двух знаков.";
+      if (hasFee && !feePayer) return "Выберите, кто платит комиссию.";
     }
     if (type === "company_topup") {
-      if (topup.state === "invalid") return setFailure("Введите суммы цифрами, копейки не больше двух знаков.");
-      if (topup.state === "error") return setFailure(topup.message);
-      if (topup.state !== "ready") return setFailure("Считаем суммы пополнения, нажмите ещё раз через секунду.");
-      if (topup.amounts.fee_payer_needed && !feePayer) return setFailure("Выберите, кто заплатил комиссию.");
+      if (topup.state === "invalid") return "Введите суммы цифрами, копейки не больше двух знаков.";
+      if (topup.state === "error") return topup.message;
+      if (topup.state !== "ready") return "Считаем суммы пополнения, нажмите ещё раз через секунду.";
+      if (topup.amounts.fee_payer_needed && !feePayer) return "Выберите, кто заплатил комиссию.";
     }
-    if (type === "expense" && !purpose) return setFailure("Выберите: личное или работа.");
-    if (type === "expense" && !categoryId) return setFailure("Выберите категорию.");
-    if (sourceNeeded && !source) return setFailure("Выберите, чьими деньгами оплачено.");
-    if (!date) return setFailure("Выберите дату.");
+    if (type === "expense" && !purpose) return "Выберите: личное или работа.";
+    if (type === "expense" && !categoryId) return "Выберите категорию.";
+    if (sourceNeeded && !source) return "Выберите, чьими деньгами оплачено.";
+    if (!date) return "Выберите дату.";
 
     const payload: Record<string, unknown> = {
       type,
@@ -251,13 +255,28 @@ export function EntryForm(props: {
       payload.fee_minor = topup.amounts.fee_minor;
       payload.fee_payer = topup.amounts.fee_payer;
     }
+    return { payload, amountMinor: parsed.minor };
+  }
+
+  const draft = build();
+  // Пока сервер считает суммы пополнения или решает, нужен ли вопрос «чьими деньгами», предпросмотр
+  // ждёт с прошлым ответом на экране (иначе мелькнёт source_required или пропадёт панель).
+  const waiting = (type === "company_topup" && topup.state === "pending") || (asksSource && !!accountId && !!date && !sourceCheck);
+  const preview = useEntryPreview(waiting ? "wait" : typeof draft === "string" ? null : draft.payload, entry?.entry_id);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setFailure(null);
+    const built = build();
+    if (typeof built === "string") return setFailure(built);
+    const { payload, amountMinor } = built;
 
     setBusy(true);
     const { data, error } = entry
       ? await supabase.rpc("update_entry", { p_entry_id: entry.entry_id, p_payload: payload })
       : await supabase.rpc("create_entry", { p_payload: payload });
     setBusy(false);
-    if (error) return setFailure(entryErrorText(error, (d) => isSelfConflict(d, parsed.minor)));
+    if (error) return setFailure(entryErrorText(error, (d) => isSelfConflict(d, amountMinor)));
     props.onSaved({
       message: entry ? "Запись сохранена" : SAVED[type],
       warnings: ((data as { warnings?: EntryWarning[] }).warnings ?? []) as EntryWarning[],
@@ -730,6 +749,14 @@ export function EntryForm(props: {
         <label htmlFor="entry-comment">Комментарий</label>
         <textarea id="entry-comment" rows={2} value={comment} onChange={(e) => setComment(e.target.value)} />
       </div>
+
+      <EffectPreview
+        state={preview}
+        accountNames={accountNames}
+        errorText={(error) =>
+          entryErrorText(error, (d) => typeof draft !== "string" && isSelfConflict(d, draft.amountMinor))
+        }
+      />
 
       <div className="account-form__actions">
         <button className="button button--primary" type="submit" disabled={busy}>

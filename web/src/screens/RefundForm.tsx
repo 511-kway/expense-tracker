@@ -5,6 +5,7 @@ import { formatDate, todayInAlmaty } from "../dates";
 import { errorText } from "../errors";
 import { entryTitle, errorDetails, refundTooBigErrorText, type EntryRow, type EntryWarning } from "../entries";
 import type { SaveResult } from "./EntryForm";
+import { EffectPreview, useEntryPreview } from "./EntryPreview";
 
 /** Трата, по которой записывается возврат покупки: то, что форма о ней показывает. */
 export type RefundParent = {
@@ -76,14 +77,13 @@ export function RefundForm(props: {
 
   const nothingLeft = remaining !== null && remaining !== "error" && remaining.remaining_minor === 0;
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setFailure(null);
+  /** Ввод → payload возврата покупки или что не так; тот же payload идёт в предпросмотр. */
+  function build(): { payload: Record<string, unknown>; amountMinor: number } | string {
     const parsed = parseAmountInput(amount);
     if (!parsed.ok)
-      return setFailure(parsed.error === "empty" ? "Введите сумму." : "Введите сумму цифрами, копейки не больше двух знаков.");
-    if (parsed.minor === 0) return setFailure("Сумма должна быть больше нуля.");
-    if (!date) return setFailure("Выберите дату.");
+      return parsed.error === "empty" ? "Введите сумму." : "Введите сумму цифрами, копейки не больше двух знаков.";
+    if (parsed.minor === 0) return "Сумма должна быть больше нуля.";
+    if (!date) return "Выберите дату.";
     const payload = {
       type: "refund",
       occurred_on: date,
@@ -92,17 +92,27 @@ export function RefundForm(props: {
       comment: comment.trim() || null,
       title: refund?.title ?? null,
     };
+    return { payload, amountMinor: parsed.minor };
+  }
+
+  const draft = build();
+  const preview = useEntryPreview(typeof draft === "string" ? null : draft.payload, refund?.entry_id);
+  const isSelf = (d: Record<string, unknown>, amountMinor: number) =>
+    refund ? d.entry_id === refund.entry_id : d.occurred_on === date && d.amount_minor === amountMinor;
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setFailure(null);
+    const built = build();
+    if (typeof built === "string") return setFailure(built);
+    const { payload, amountMinor } = built;
     setBusy(true);
     const { data, error } = refund
       ? await supabase.rpc("update_entry", { p_entry_id: refund.entry_id, p_payload: payload })
       : await supabase.rpc("create_entry", { p_payload: payload });
     setBusy(false);
     if (error)
-      return setFailure(
-        refundErrorText(error, (d) =>
-          refund ? d.entry_id === refund.entry_id : d.occurred_on === date && d.amount_minor === parsed.minor,
-        ),
-      );
+      return setFailure(refundErrorText(error, (d) => isSelf(d, amountMinor)));
     props.onSaved({
       message: refund ? "Запись сохранена" : "Возврат покупки записан",
       warnings: ((data as { warnings?: EntryWarning[] }).warnings ?? []) as EntryWarning[],
@@ -194,6 +204,11 @@ export function RefundForm(props: {
         <label htmlFor="refund-comment">Комментарий</label>
         <textarea id="refund-comment" rows={2} value={comment} onChange={(e) => setComment(e.target.value)} />
       </div>
+
+      <EffectPreview
+        state={preview}
+        errorText={(error) => refundErrorText(error, (d) => typeof draft !== "string" && isSelf(d, draft.amountMinor))}
+      />
 
       <div className="account-form__actions">
         <button className="button button--primary" type="submit" disabled={busy || (nothingLeft && !refund)}>
