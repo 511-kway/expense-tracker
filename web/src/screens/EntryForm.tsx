@@ -12,6 +12,7 @@ import {
   debtOverpayErrorText,
   errorDetails,
   nettingTooBigErrorText,
+  refundTooBigErrorText,
   type AdjustmentMode,
   type AdjustmentTarget,
   type EntryRow,
@@ -22,6 +23,7 @@ import {
 import { MoneyField } from "./form";
 import type { AccountRow } from "./Accounts";
 import type { CategoryRow } from "./Categories";
+import { refundParentOf, type RefundParent } from "./RefundForm";
 
 type FormType =
   | "expense"
@@ -102,8 +104,11 @@ export function EntryForm(props: {
   categories: CategoryRow[];
   accountingStartDate: string;
   onSaved: (result: SaveResult) => void;
+  /** Открыть возврат покупки по этой трате. */
+  onRefund?: (parent: RefundParent) => void;
 }) {
   const { entry, accountingStartDate } = props;
+  const refundParent = entry?.type === "expense" ? refundParentOf(entry) : null;
   const accounts = props.accounts.filter((a) => !a.is_archived || a.account_id === entry?.account_id);
   const categories = props.categories.filter((c) => !c.is_archived || c.id === entry?.category_id);
   const today = todayInAlmaty();
@@ -279,6 +284,23 @@ export function EntryForm(props: {
 
   return (
     <form className="account-form entry-form" onSubmit={submit} noValidate>
+      {refundParent && props.onRefund && (
+        <div className="refund-action">
+          <p className="muted">
+            {entry && entry.refunded_minor > 0 ? (
+              <>
+                По трате уже вернули <span className="amount">{formatMoney(entry.refunded_minor, "KZT")}</span>.
+              </>
+            ) : (
+              "Магазин вернул деньги за эту покупку, полностью или частично?"
+            )}
+          </p>
+          <button className="button" type="button" onClick={() => props.onRefund?.(refundParent)}>
+            Возврат покупки
+          </button>
+        </div>
+      )}
+
       <fieldset className="choice">
         <legend>Что записать</legend>
         <div className="choice__options choice__options--grid">
@@ -918,6 +940,10 @@ function entryErrorText(
   if (error.message === "debt_below_zero") {
     const d = errorDetails(error);
     return debtBelowZeroErrorText(d, isSelf(d));
+  }
+  if (error.message === "refund_too_big") {
+    // У формы траты конфликт всегда на возврате покупки: трата стала меньше возвращённого.
+    return refundTooBigErrorText(errorDetails(error), false);
   }
   if (error.message === "entry_before_start") {
     const d = errorDetails(error);

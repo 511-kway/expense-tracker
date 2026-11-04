@@ -1353,3 +1353,49 @@ button.entry:hover .entry__title {
     padding: 0 0.5rem;
   }
 }
+
+/* Возврат покупки: трата, по которой он записан, и сколько ещё можно вернуть (от сервера) */
+.refund-parent {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.875rem 1rem;
+  border-left: 3px solid var(--line);
+  background: var(--paper);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+}
+
+.refund-parent p {
+  margin: 0;
+}
+
+.refund-parent__title {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-weight: 600;
+}
+
+.refund-parent .amount {
+  font-weight: 600;
+}
+
+.refund-all {
+  justify-self: start;
+  margin-top: 0.25rem;
+}
+
+/* У траты на правке: переход к возврату покупки */
+.refund-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.refund-action p {
+  margin: 0;
+  font-size: var(--text-sm);
+}

@@ -9,6 +9,8 @@ import {
   errorDetails,
   formatSigned,
   nettingTooBigErrorText,
+  refundLabel,
+  refundTooBigErrorText,
   warningLines,
 } from "./entries";
 
@@ -47,6 +49,38 @@ describe("entryTitle", () => {
     expect(entryTitle({ type: "expense", title: "Таргет", category_name: "Реклама" })).toBe("Таргет");
     expect(entryTitle({ type: "expense", title: null, category_name: "Реклама" })).toBe("Реклама");
     expect(entryTitle({ type: "income", title: null, category_name: null })).toBe("Поступление");
+  });
+
+  it("names a возврат покупки by its own title or by what was bought", () => {
+    expect(entryTitle({ type: "refund", title: null, category_name: "Реклама" })).toBe("Возврат покупки: Реклама");
+    expect(entryTitle({ type: "refund", title: null, category_name: "Реклама", parent_title: "Наушники" })).toBe(
+      "Возврат покупки: Наушники",
+    );
+    expect(entryTitle({ type: "refund", title: "Вернули часть", category_name: "Реклама" })).toBe("Вернули часть");
+  });
+});
+
+describe("refundLabel", () => {
+  it("links a возврат покупки to its expense", () => {
+    expect(refundLabel({ parent_occurred_on: "2026-11-02", parent_amount_minor: 3000000 })).toBe(
+      "по трате 2 ноября 2026 на 30\u00a0000\u00a0₸",
+    );
+    expect(refundLabel({ parent_occurred_on: null, parent_amount_minor: null })).toBe("по трате");
+  });
+});
+
+describe("refundTooBigErrorText", () => {
+  const d = { entry_id: "r1", occurred_on: "2026-11-05", available_minor: 1500000, amount_minor: 2000000 };
+  it("on the возврат покупки itself tells how much is still refundable", () => {
+    expect(refundTooBigErrorText(d, true)).toBe(
+      "Вернуть можно не больше 15\u00a0000\u00a0₸: столько по этой трате ещё не вернули.",
+    );
+  });
+  it("on an edit of the expense names the возврат покупки that would be too big", () => {
+    expect(refundTooBigErrorText(d, false)).toBe(
+      "Не получится: возврат покупки 5 ноября 2026 на 20\u00a0000\u00a0₸ станет больше суммы траты " +
+        "(можно вернуть 15\u00a0000\u00a0₸). Сначала измените или удалите этот возврат покупки.",
+    );
   });
 });
 
@@ -162,6 +196,12 @@ describe("breakdownLabel", () => {
       breakdownLabel({ ...base, type: "settlement", settlement_direction: "company_paid_me", account_name: "H1" }),
     ).toBe("Погашение долга: компания отдала мне, «H1»");
     expect(breakdownLabel({ ...base, type: "netting" })).toBe("Взаимозачёт");
+    expect(breakdownLabel({ ...base, type: "refund", category_name: "Кафе", account_name: "H1" })).toBe(
+      "Возврат покупки: Кафе, «H1»",
+    );
+    expect(
+      breakdownLabel({ ...base, type: "refund", category_name: "Кафе", parent_title: "Наушники", account_name: "H1" }),
+    ).toBe("Возврат покупки: Наушники, «H1»");
   });
 });
 

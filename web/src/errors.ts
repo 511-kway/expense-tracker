@@ -31,6 +31,9 @@ const MESSAGES: Record<string, string> = {
   advance_return_too_big: "Изъять можно не больше аванса на счёте на эту дату",
   fee_too_big: "Комиссия должна быть меньше суммы пополнения",
   refund_too_big: "Возврат больше суммы исходной траты",
+  refund_before_expense: "Возврат покупки не может быть раньше своей траты",
+  refund_parent_not_expense: "Возврат покупки записывается только по трате",
+  expense_has_refunds: "По трате записан возврат покупки: сначала удалите его",
 };
 
 export function errorText(error: { message?: string } | null | undefined): string {

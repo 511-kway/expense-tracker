@@ -8,6 +8,7 @@ import {
   TRANSFER_PURPOSES,
   adjustmentLabel,
   entryTitle,
+  refundLabel,
   formatSigned,
   type EntryRow,
 } from "../entries";
@@ -22,6 +23,7 @@ export const EDITABLE = new Set([
   "settlement",
   "netting",
   "adjustment",
+  "refund",
 ]);
 
 /**
@@ -132,7 +134,12 @@ function meta(e: EntryRow): string {
   if (e.type === "expense") {
     if (e.purpose === "work") parts.push("работа");
     else parts.push(e.source === "company" ? "личное, деньгами компании" : "личное");
+    if (e.refunded_minor > 0)
+      parts.push(
+        e.refunded_minor >= e.amount_minor ? "вернули полностью" : `вернули ${formatMoney(e.refunded_minor, e.currency)}`,
+      );
   }
+  if (e.type === "refund") parts.push(refundLabel(e));
   if (e.type === "income" && e.category_name) parts.push("поступление");
   if ((e.type === "company_topup" || e.type === "transfer") && e.fee_minor > 0)
     parts.push(`комиссия ${formatMoney(e.fee_minor, e.currency)}, ${e.fee_payer === "own" ? "платил я" : "платила компания"}`);

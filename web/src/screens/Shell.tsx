@@ -6,6 +6,7 @@ import { Categories, type CategoryRow } from "./Categories";
 import { Entries } from "./Entries";
 import { EntryForm, type SaveResult } from "./EntryForm";
 import { SheetDialog } from "./form";
+import { RefundForm, refundParentOf, type RefundParent } from "./RefundForm";
 import { supabase } from "../supabase";
 import { warningLines, type EntryRow } from "../entries";
 
@@ -39,7 +40,7 @@ export function Shell({
 }) {
   const [current, setCurrent] = useState(sectionFromHash);
   // Лист записи: новая (entry не задан) или правка. revision перемонтирует экран после сохранения.
-  const [sheet, setSheet] = useState<{ entry?: EntryRow } | null>(null);
+  const [sheet, setSheet] = useState<{ entry?: EntryRow; refundOf?: RefundParent } | null>(null);
   const [revision, setRevision] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
   const [notices, setNotices] = useState<string[]>([]);
@@ -147,7 +148,10 @@ export function Shell({
 
       {sheet && (
         <EntrySheet
+          key={sheet.refundOf ? `refund:${sheet.refundOf.entry_id}` : (sheet.entry?.entry_id ?? "new")}
           entry={sheet.entry}
+          refundOf={sheet.refundOf}
+          onRefund={(refundOf) => setSheet({ refundOf })}
           accountingStartDate={accountingStartDate}
           onClose={() => setSheet(null)}
           onSaved={(r) => void saved(r)}
@@ -177,15 +181,22 @@ function CaptureButton({ wide, onClick }: { wide?: boolean; onClick: () => void 
   );
 }
 
-/** Лист записи: свежие счета и категории с сервера, затем форма. */
+/**
+ * Лист записи: свежие счета и категории с сервера, затем форма. Возврат покупки (новый по трате
+ * или открытый из ленты) идёт своей формой: счёт и категория у него от траты.
+ */
 function EntrySheet(props: {
   entry?: EntryRow;
+  refundOf?: RefundParent;
+  onRefund: (parent: RefundParent) => void;
   accountingStartDate: string;
   onClose: () => void;
   onSaved: (result: SaveResult) => void;
 }) {
   const [refs, setRefs] = useState<{ accounts: AccountRow[]; categories: CategoryRow[] } | null | "error">(null);
+  const refundParent = props.refundOf ?? (props.entry?.type === "refund" ? refundParentOf(props.entry) : null);
   useEffect(() => {
+    if (refundParent) return;
     void (async () => {
       const [a, c] = await Promise.all([
         supabase
@@ -198,6 +209,16 @@ function EntrySheet(props: {
       else setRefs({ accounts: a.data as AccountRow[], categories: c.data as CategoryRow[] });
     })();
   }, []);
+  if (refundParent)
+    return (
+      <SheetDialog title="Возврат покупки" onClose={props.onClose}>
+        <RefundForm
+          parent={refundParent}
+          refund={props.entry?.type === "refund" ? props.entry : undefined}
+          onSaved={props.onSaved}
+        />
+      </SheetDialog>
+    );
   return (
     <SheetDialog title={props.entry ? "Запись" : "Новая запись"} onClose={props.onClose}>
       {refs === null ? (
@@ -213,6 +234,7 @@ function EntrySheet(props: {
           categories={refs.categories}
           accountingStartDate={props.accountingStartDate}
           onSaved={props.onSaved}
+          onRefund={props.onRefund}
         />
       )}
     </SheetDialog>

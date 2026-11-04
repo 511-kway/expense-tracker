@@ -47,6 +47,13 @@ export type EntryRow = {
   adjustment_sign: 1 | -1 | null;
   adjustment_mode: AdjustmentMode | null;
   adjustment_affects_advance: boolean;
+  /** Возврат покупки: его трата (дата, сумма, заголовок). */
+  parent_entry_id: string | null;
+  parent_occurred_on: string | null;
+  parent_amount_minor: number | null;
+  parent_title: string | null;
+  /** Трата: сколько по ней записано возвратов покупки. */
+  refunded_minor: number;
 };
 
 export type AdjustmentTarget = "balance" | DebtSide;
@@ -84,10 +91,12 @@ export type BreakdownRow = {
   settlement_direction: SettlementDirection | null;
   delta_minor: number;
   side_after_minor: number;
+  /** Возврат покупки: заголовок его траты. */
+  parent_title: string | null;
 };
 
 export const BREAKDOWN_COLUMNS =
-  "entry_id, side, type, occurred_on, title, category_name, account_name, to_account_name, purpose, source, transfer_purpose, settlement_direction, delta_minor, side_after_minor";
+  "entry_id, side, type, occurred_on, title, category_name, account_name, to_account_name, purpose, source, transfer_purpose, settlement_direction, delta_minor, side_after_minor, parent_title";
 
 export type TransferPurpose = "move_own" | "move_company" | "repay_debt" | "take_advance";
 
@@ -100,7 +109,7 @@ export const TRANSFER_PURPOSES: Record<TransferPurpose, string> = {
 };
 
 export const ENTRY_COLUMNS =
-  "entry_id, type, status, occurred_on, amount_minor, currency, account_id, account_name, category_id, category_name, purpose, source, comment, title, balance_delta_minor, advance_delta_minor, company_owes_me_delta_minor, i_owe_company_delta_minor, fee_minor, fee_payer, transfer_purpose, to_account_id, to_account_name, to_balance_delta_minor, to_advance_delta_minor, settlement_direction, adjustment_target, adjustment_sign, adjustment_mode, adjustment_affects_advance";
+  "entry_id, type, status, occurred_on, amount_minor, currency, account_id, account_name, category_id, category_name, purpose, source, comment, title, balance_delta_minor, advance_delta_minor, company_owes_me_delta_minor, i_owe_company_delta_minor, fee_minor, fee_payer, transfer_purpose, to_account_id, to_account_name, to_balance_delta_minor, to_advance_delta_minor, settlement_direction, adjustment_target, adjustment_sign, adjustment_mode, adjustment_affects_advance, parent_entry_id, parent_occurred_on, parent_amount_minor, parent_title, refunded_minor";
 
 /** Предупреждение из ответа create_entry / update_entry / delete_entry. */
 export type EntryWarning =
@@ -120,9 +129,39 @@ const TYPE_TITLES: Record<EntryType, string> = {
   refund: "Возврат покупки",
 };
 
-/** Заголовок строки ленты: заголовок записи, иначе категория, иначе тип. */
-export function entryTitle(e: Pick<EntryRow, "type" | "title" | "category_name">): string {
+/**
+ * Заголовок строки ленты: заголовок записи, иначе категория, иначе тип. Возврат покупки без
+ * своего заголовка называется по своей трате (её заголовок или категория).
+ */
+export function entryTitle(
+  e: Pick<EntryRow, "type" | "title" | "category_name"> & Partial<Pick<EntryRow, "parent_title">>,
+): string {
+  if (e.type === "refund" && !e.title) {
+    const what = e.parent_title ?? e.category_name;
+    return what ? `${TYPE_TITLES.refund}: ${what}` : TYPE_TITLES.refund;
+  }
   return e.title ?? e.category_name ?? TYPE_TITLES[e.type];
+}
+
+/** Ссылка возврата покупки на трату, мелко в ленте. */
+export function refundLabel(e: Pick<EntryRow, "parent_occurred_on" | "parent_amount_minor">): string {
+  if (!e.parent_occurred_on || e.parent_amount_minor === null) return "по трате";
+  return `по трате ${formatDate(e.parent_occurred_on)} на ${formatMoney(e.parent_amount_minor, "KZT")}`;
+}
+
+/**
+ * Ошибка «возврат покупки больше невозвращённого» (refund_too_big, ADR-0006). self = конфликт на
+ * самом возврате из формы; иначе правка траты делает её меньше уже записанного возврата.
+ */
+export function refundTooBigErrorText(details: Record<string, unknown>, self: boolean): string {
+  const available = formatMoney(typeof details.available_minor === "number" ? details.available_minor : 0, "KZT");
+  if (self) return `Вернуть можно не больше ${available}: столько по этой трате ещё не вернули.`;
+  const amount = typeof details.amount_minor === "number" ? formatMoney(details.amount_minor, "KZT") : "";
+  const date = typeof details.occurred_on === "string" ? formatDate(details.occurred_on) : "позже";
+  return (
+    `Не получится: возврат покупки ${date}${amount ? ` на ${amount}` : ""} станет больше суммы траты ` +
+    `(можно вернуть ${available}). Сначала измените или удалите этот возврат покупки.`
+  );
 }
 
 /**
@@ -233,7 +272,8 @@ export function breakdownLabel(
     | "source"
     | "transfer_purpose"
     | "settlement_direction"
-  >,
+  > &
+    Partial<Pick<BreakdownRow, "parent_title">>,
 ): string {
   const at = (name: string | null) => (name ? `, «${name}»` : "");
   switch (r.type) {
@@ -250,6 +290,8 @@ export function breakdownLabel(
       return `${TYPE_TITLES.settlement}${
         r.settlement_direction ? `: ${SETTLEMENT_DIRECTIONS[r.settlement_direction].toLowerCase()}` : ""
       }${at(r.account_name)}`;
+    case "refund":
+      return `${TYPE_TITLES.refund}: ${r.title ?? r.parent_title ?? r.category_name ?? TYPE_TITLES.expense.toLowerCase()}${at(r.account_name)}`;
     default:
       return r.title ?? TYPE_TITLES[r.type];
   }
