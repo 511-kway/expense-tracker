@@ -866,6 +866,10 @@ a.button--quiet[aria-current="page"] {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.choice__option--wide {
+  grid-column: 1 / -1;
+}
+
 .choice__options--grid .choice__option > span:not(.swatch) {
   display: flex;
   width: 100%;

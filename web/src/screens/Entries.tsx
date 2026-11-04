@@ -2,10 +2,10 @@ import { useEffect, useState, type ReactNode } from "react";
 import { supabase } from "../supabase";
 import { formatMoney } from "../money";
 import { formatDate } from "../dates";
-import { ENTRY_COLUMNS, entryTitle, formatSigned, type EntryRow } from "../entries";
+import { ENTRY_COLUMNS, TRANSFER_PURPOSES, entryTitle, formatSigned, type EntryRow } from "../entries";
 
 /** Эти типы правятся в форме; остальные появятся со своими тикетами. */
-const EDITABLE = new Set(["expense", "income", "company_topup", "company_advance_return"]);
+const EDITABLE = new Set(["expense", "income", "transfer", "company_topup", "company_advance_return"]);
 
 /**
  * Лента записей по датам, новые сверху. У каждой строки сумма и что запись сделала с авансом
@@ -70,17 +70,23 @@ export function Entries({ onEdit, onCreate }: { onEdit: (entry: EntryRow) => voi
 }
 
 function EntryItem({ entry: e, onEdit }: { entry: EntryRow; onEdit?: () => void }) {
-  const shown =
-    e.balance_delta_minor !== 0
+  // Перевод не меняет итог моих денег: сумма без знака, стороны в подписи и эффектах.
+  const amount =
+    e.type === "transfer"
+      ? formatMoney(e.amount_minor, e.currency)
+      : formatSigned(
+          e.balance_delta_minor !== 0
       ? e.balance_delta_minor
       : e.company_owes_me_delta_minor !== 0
         ? e.company_owes_me_delta_minor
-        : e.i_owe_company_delta_minor;
+        : e.i_owe_company_delta_minor,
+          e.currency,
+        );
   const content: ReactNode = (
     <>
       <span className="entry__head">
         <span className="entry__title">{entryTitle(e)}</span>
-        <span className="entry__amount amount">{formatSigned(shown, e.currency)}</span>
+        <span className="entry__amount amount">{amount}</span>
       </span>
       <span className="entry__meta muted">{meta(e)}</span>
       <Effects entry={e} />
@@ -97,13 +103,16 @@ function EntryItem({ entry: e, onEdit }: { entry: EntryRow; onEdit?: () => void 
 
 function meta(e: EntryRow): string {
   const parts: string[] = [];
-  if (e.account_name) parts.push(e.account_name);
+  if (e.type === "transfer") {
+    parts.push(`с «${e.account_name ?? "счёта"}» на «${e.to_account_name ?? "счёт"}»`);
+    if (e.transfer_purpose) parts.push(TRANSFER_PURPOSES[e.transfer_purpose].toLowerCase());
+  } else if (e.account_name) parts.push(e.account_name);
   if (e.type === "expense") {
     if (e.purpose === "work") parts.push("работа");
     else parts.push(e.source === "company" ? "личное, деньгами компании" : "личное");
   }
   if (e.type === "income" && e.category_name) parts.push("поступление");
-  if (e.type === "company_topup" && e.fee_minor > 0)
+  if ((e.type === "company_topup" || e.type === "transfer") && e.fee_minor > 0)
     parts.push(`комиссия ${formatMoney(e.fee_minor, e.currency)}, ${e.fee_payer === "own" ? "платил я" : "платила компания"}`);
   if (e.comment) parts.push(e.comment);
   return parts.join(", ");
@@ -112,10 +121,18 @@ function meta(e: EntryRow): string {
 /** Что запись сделала с авансом и сторонами долга: цвет «свои» и «компания» плюс подпись. */
 function Effects({ entry: e }: { entry: EntryRow }) {
   const items: { side: "own" | "company"; label: string; value: string }[] = [];
+  // У перевода аванс двигается на двух счетах: подпись называет счёт.
+  const from = e.type === "transfer" ? ` «${e.account_name ?? "откуда"}»` : "";
   if (e.advance_delta_minor < 0)
-    items.push({ side: "company", label: "Из аванса", value: formatMoney(-e.advance_delta_minor, "KZT") });
+    items.push({ side: "company", label: `Из аванса${from}`, value: formatMoney(-e.advance_delta_minor, "KZT") });
   if (e.advance_delta_minor > 0)
-    items.push({ side: "company", label: "В аванс", value: formatMoney(e.advance_delta_minor, "KZT") });
+    items.push({ side: "company", label: `В аванс${from}`, value: formatMoney(e.advance_delta_minor, "KZT") });
+  if (e.type === "transfer" && e.to_advance_delta_minor !== 0)
+    items.push({
+      side: "company",
+      label: `${e.to_advance_delta_minor > 0 ? "В аванс" : "Из аванса"} «${e.to_account_name ?? "куда"}»`,
+      value: formatMoney(Math.abs(e.to_advance_delta_minor), "KZT"),
+    });
   if (e.type !== "adjustment" || e.balance_delta_minor !== 0) {
     if (e.company_owes_me_delta_minor !== 0)
       items.push({ side: "own", label: "Компания должна мне", value: formatSigned(e.company_owes_me_delta_minor, "KZT") });

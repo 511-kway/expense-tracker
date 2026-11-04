@@ -34,10 +34,26 @@ export type EntryRow = {
   i_owe_company_delta_minor: number;
   fee_minor: number;
   fee_payer: "own" | "company" | null;
+  /** Перевод: «куда» и что перевод сделал с ним; дельты выше у перевода по «откуда». */
+  transfer_purpose: TransferPurpose | null;
+  to_account_id: string | null;
+  to_account_name: string | null;
+  to_balance_delta_minor: number;
+  to_advance_delta_minor: number;
+};
+
+export type TransferPurpose = "move_own" | "move_company" | "repay_debt" | "take_advance";
+
+/** Назначения перевода по GLOSSARY.md; «пополнил аванс переводом» убрано (spec.md). */
+export const TRANSFER_PURPOSES: Record<TransferPurpose, string> = {
+  move_own: "Перевод своих",
+  move_company: "Перекладка аванса",
+  repay_debt: "Погашение долга в аванс",
+  take_advance: "Взял из аванса себе",
 };
 
 export const ENTRY_COLUMNS =
-  "entry_id, type, status, occurred_on, amount_minor, currency, account_id, account_name, category_id, category_name, purpose, source, comment, title, balance_delta_minor, advance_delta_minor, company_owes_me_delta_minor, i_owe_company_delta_minor, fee_minor, fee_payer";
+  "entry_id, type, status, occurred_on, amount_minor, currency, account_id, account_name, category_id, category_name, purpose, source, comment, title, balance_delta_minor, advance_delta_minor, company_owes_me_delta_minor, i_owe_company_delta_minor, fee_minor, fee_payer, transfer_purpose, to_account_id, to_account_name, to_balance_delta_minor, to_advance_delta_minor";
 
 /** Предупреждение из ответа create_entry / update_entry / delete_entry. */
 export type EntryWarning =
@@ -116,5 +132,21 @@ export function advanceReturnErrorText(details: Record<string, unknown>, self: b
   return (
     `Не получится: изъятие аванса ${date}${amount ? ` на ${amount}` : ""} станет больше аванса на ту дату ` +
     `(${formatMoney(advance, "KZT")}). Сначала измените или удалите это изъятие.`
+  );
+}
+
+/**
+ * Ошибка «погасить больше долга» (debt_overpay, ADR-0006) у погашения долга в аванс. self =
+ * конфликт на самой записи из формы; иначе правка или удаление задним числом ломает более
+ * позднее погашение.
+ */
+export function debtOverpayErrorText(details: Record<string, unknown>, self: boolean): string {
+  const debt = typeof details.available_minor === "number" ? details.available_minor : 0;
+  if (self) return `Погасить можно не больше ${formatMoney(debt, "KZT")}: столько вы должны компании на эту дату.`;
+  const amount = typeof details.amount_minor === "number" ? formatMoney(details.amount_minor, "KZT") : "";
+  const date = typeof details.occurred_on === "string" ? formatDate(details.occurred_on) : "позже";
+  return (
+    `Не получится: погашение долга ${date}${amount ? ` на ${amount}` : ""} станет больше долга на ту дату ` +
+    `(${formatMoney(debt, "KZT")}). Сначала измените или удалите это погашение.`
   );
 }

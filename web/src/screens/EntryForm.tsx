@@ -3,21 +3,30 @@ import { supabase } from "../supabase";
 import { formatAmountInput, formatMoney, minorToAmountInput, parseAmountInput } from "../money";
 import { formatDate, todayInAlmaty } from "../dates";
 import { errorText } from "../errors";
-import { advanceReturnErrorText, errorDetails, type EntryRow, type EntryWarning } from "../entries";
+import {
+  TRANSFER_PURPOSES,
+  advanceReturnErrorText,
+  debtOverpayErrorText,
+  errorDetails,
+  type EntryRow,
+  type EntryWarning,
+  type TransferPurpose,
+} from "../entries";
 import { MoneyField } from "./form";
 import type { AccountRow } from "./Accounts";
 import type { CategoryRow } from "./Categories";
 
-type FormType = "expense" | "income" | "company_topup" | "company_advance_return";
+type FormType = "expense" | "income" | "transfer" | "company_topup" | "company_advance_return";
 type FeeStyle = "arrived_fee" | "sent_fee" | "sent_arrived";
 type Purpose = "personal" | "work";
 type Source = "own" | "company";
 
-const FORM_TYPES: FormType[] = ["expense", "income", "company_topup", "company_advance_return"];
+const FORM_TYPES: FormType[] = ["expense", "income", "transfer", "company_topup", "company_advance_return"];
 
 const SAVED: Record<FormType, string> = {
   expense: "Трата записана",
   income: "Поступление записано",
+  transfer: "Перевод записан",
   company_topup: "Пополнение записано",
   company_advance_return: "Изъятие записано",
 };
@@ -25,6 +34,7 @@ const SAVED: Record<FormType, string> = {
 const SUBMIT: Record<FormType, string> = {
   expense: "Записать трату",
   income: "Записать поступление",
+  transfer: "Записать перевод",
   company_topup: "Записать пополнение",
   company_advance_return: "Записать изъятие",
 };
@@ -36,10 +46,21 @@ const FEE_STYLES: Record<FeeStyle, { option: string; first: string; second: stri
   sent_arrived: { option: "Сколько отправила и сколько пришло", first: "Отправила компания", second: "Пришло на счёт" },
 };
 
+/** Что делает назначение перевода: словами по spec.md и GLOSSARY.md, числа считает сервер. */
+const PURPOSE_HINTS: Record<TransferPurpose, string> = {
+  move_own: "Мои деньги переезжают на другой счёт: меняются только остатки.",
+  move_company: "Деньги компании переезжают на другой счёт: аванс переедет, сколько его есть на счёте «откуда», долг не изменится.",
+  repay_debt: "Мои деньги станут авансом на счёте «куда» и уменьшат «я должен компании». Не больше долга на эту дату.",
+  take_advance: "Деньги компании становятся моими: аванс счёта «откуда» уменьшится, «я должен компании» вырастет на столько же.",
+};
+
+const PURPOSE_ORDER: TransferPurpose[] = ["move_own", "move_company", "repay_debt", "take_advance"];
+
 export type SaveResult = { message: string; warnings: EntryWarning[] };
 
 /**
- * Форма записи (док 04, 4.2): трата, поступление, пополнение от компании, изъятие аванса.
+ * Форма записи (док 04, 4.2): трата, поступление, перевод, пополнение от компании, изъятие
+ * аванса. У перевода «куда» без счёта «откуда» и только той же валюты, назначение и комиссия.
  * Клиент собирает ввод и зовёт create_entry / update_entry; сплит, источник по умолчанию,
  * суммы пополнения с комиссией и проверки делает сервер. Вопрос «чьими деньгами» только у
  * личной траты, когда сервер говорит, что на счёте на эту дату есть аванс.
@@ -72,21 +93,40 @@ export function EntryForm(props: {
   const [source, setSource] = useState<Source | null>(entry?.source ?? null);
   const [categoryId, setCategoryId] = useState(entry?.category_id ?? "");
   const [date, setDate] = useState(entry?.occurred_on ?? (today < accountingStartDate ? accountingStartDate : today));
+  const isTransfer = entry?.type === "transfer";
+  const [toAccountId, setToAccountId] = useState(entry?.to_account_id ?? "");
+  const [transferPurpose, setTransferPurpose] = useState<TransferPurpose | null>(entry?.transfer_purpose ?? null);
+  const [fee, setFee] = useState(isTransfer && entry?.fee_minor ? minorToAmountInput(entry.fee_minor) : "");
   const [comment, setComment] = useState(entry?.comment ?? "");
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
   const account = accounts.find((a) => a.account_id === accountId);
+  // «Куда»: свои счета той же валюты, без счёта «откуда» (spec.md, история 36).
+  const toAccounts = accounts.filter(
+    (a) => a.account_id !== accountId && (!account || a.currency === account.currency),
+  );
+  const toAccount = toAccounts.find((a) => a.account_id === toAccountId);
+  const minDate = [account?.start_date, type === "transfer" ? toAccount?.start_date : undefined, accountingStartDate]
+    .filter((d): d is string => !!d)
+    .sort()
+    .pop();
+  const feeParsed = fee.trim() === "" ? ({ ok: true, minor: 0 } as const) : parseAmountInput(fee);
+  const hasFee = type === "transfer" && feeParsed.ok && feeParsed.minor > 0;
   const asksSource = type === "expense" && purpose === "personal";
   const sourceCheck = useSourceNeeded(asksSource ? accountId : "", date, entry?.entry_id);
   const sourceNeeded = asksSource && sourceCheck?.needed === true;
-  const withdrawalAdvance = useAdvanceOnDate(type === "company_advance_return" ? accountId : "", date, entry?.entry_id);
+  const showsAdvance =
+    type === "company_advance_return" ||
+    (type === "transfer" && (transferPurpose === "move_company" || transferPurpose === "take_advance"));
+  const advanceOnDate = useAdvanceOnDate(showsAdvance ? accountId : "", date, entry?.entry_id);
+  const debtOnDate = useDebtOnDate(type === "transfer" && transferPurpose === "repay_debt", date, entry?.entry_id);
   const topup = useTopupAmounts(type === "company_topup", feeStyle, amount, second, feePayer);
 
-  // Конфликт изъятия на самой записи из формы, а не на более позднем изъятии.
+  // Конфликт изъятия или погашения на самой записи из формы, а не на более поздней записи.
   function isSelfConflict(d: Record<string, unknown>, amountMinor: number): boolean {
-    if (type !== "company_advance_return") return false;
+    if (type !== "company_advance_return" && type !== "transfer") return false;
     if (entry) return d.entry_id === entry.entry_id;
     return d.occurred_on === date && d.amount_minor === amountMinor;
   }
@@ -98,7 +138,13 @@ export function EntryForm(props: {
     if (!parsed.ok)
       return setFailure(parsed.error === "empty" ? "Введите сумму." : "Введите сумму цифрами, копейки не больше двух знаков.");
     if (parsed.minor === 0) return setFailure("Сумма должна быть больше нуля.");
-    if (!accountId) return setFailure("Выберите счёт.");
+    if (!accountId) return setFailure(type === "transfer" ? "Выберите, откуда перевод." : "Выберите счёт.");
+    if (type === "transfer") {
+      if (!toAccount) return setFailure("Выберите, куда перевод.");
+      if (!transferPurpose) return setFailure("Выберите назначение перевода.");
+      if (!feeParsed.ok) return setFailure("Введите комиссию цифрами, копейки не больше двух знаков.");
+      if (hasFee && !feePayer) return setFailure("Выберите, кто платит комиссию.");
+    }
     if (type === "company_topup") {
       if (topup.state === "invalid") return setFailure("Введите суммы цифрами, копейки не больше двух знаков.");
       if (topup.state === "error") return setFailure(topup.message);
@@ -121,6 +167,12 @@ export function EntryForm(props: {
     if (type === "expense") {
       payload.purpose = purpose;
       payload.source = sourceNeeded ? source : null;
+    }
+    if (type === "transfer" && feeParsed.ok) {
+      payload.to_account_id = toAccountId;
+      payload.transfer_purpose = transferPurpose;
+      payload.fee_minor = feeParsed.minor;
+      payload.fee_payer = hasFee ? feePayer : null;
     }
     if (type === "company_topup" && topup.state === "ready") {
       // Сумма записи и комиссия ровно как их посчитал сервер (topup_amounts).
@@ -166,6 +218,13 @@ export function EntryForm(props: {
         <div className="choice__options choice__options--grid">
           <ChoiceOption name="entry-type" checked={type === "expense"} onChange={() => setType("expense")} label="Трата" />
           <ChoiceOption name="entry-type" checked={type === "income"} onChange={() => setType("income")} label="Поступление" />
+          <ChoiceOption
+            name="entry-type"
+            checked={type === "transfer"}
+            onChange={() => setType("transfer")}
+            label="Перевод между счетами"
+            wide
+          />
           <ChoiceOption
             name="entry-type"
             checked={type === "company_topup"}
@@ -215,8 +274,15 @@ export function EntryForm(props: {
 
       <div className="account-form__row">
         <div className="field">
-          <label htmlFor="entry-account">Счёт</label>
-          <select id="entry-account" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+          <label htmlFor="entry-account">{type === "transfer" ? "Откуда" : "Счёт"}</label>
+          <select
+            id="entry-account"
+            value={accountId}
+            onChange={(e) => {
+              setAccountId(e.target.value);
+              if (e.target.value === toAccountId) setToAccountId("");
+            }}
+          >
             {!accountId && <option value="">Выберите счёт</option>}
             {accounts.map((a) => (
               <option key={a.account_id} value={a.account_id}>
@@ -230,12 +296,95 @@ export function EntryForm(props: {
           <input
             id="entry-date"
             type="date"
-            min={account?.start_date ?? accountingStartDate}
+            min={minDate}
             value={date}
             onChange={(e) => setDate(e.target.value)}
           />
         </div>
       </div>
+
+      {type === "transfer" && (
+        <>
+          <div className="field">
+            <label htmlFor="entry-to-account">Куда</label>
+            <select id="entry-to-account" value={toAccount ? toAccountId : ""} onChange={(e) => setToAccountId(e.target.value)}>
+              <option value="">Выберите счёт</option>
+              {toAccounts.map((a) => (
+                <option key={a.account_id} value={a.account_id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+            {account && toAccounts.length === 0 && (
+              <p className="field__hint">
+                Нет другого счёта в этой валюте. <a href="#/accounts">Добавьте счёт</a>, чтобы перевести.
+              </p>
+            )}
+          </div>
+
+          <fieldset className="choice">
+            <legend>Назначение</legend>
+            <div className="choice__options choice__options--grid">
+              {PURPOSE_ORDER.map((p) => (
+                <ChoiceOption
+                  key={p}
+                  name="entry-transfer-purpose"
+                  checked={transferPurpose === p}
+                  onChange={() => setTransferPurpose(p)}
+                  label={TRANSFER_PURPOSES[p]}
+                />
+              ))}
+            </div>
+            {transferPurpose && (
+              <p className="field__hint">
+                {PURPOSE_HINTS[transferPurpose]}
+                {transferPurpose === "repay_debt" && debtOnDate !== null && (
+                  <>
+                    {" "}
+                    На эту дату вы должны компании <span className="amount">{formatMoney(debtOnDate, "KZT")}</span>.
+                  </>
+                )}
+                {transferPurpose !== "repay_debt" && transferPurpose !== "move_own" && advanceOnDate !== null && (
+                  <>
+                    {" "}
+                    Аванс на счёте «откуда» на эту дату <span className="amount">{formatMoney(advanceOnDate, "KZT")}</span>.
+                  </>
+                )}
+              </p>
+            )}
+          </fieldset>
+
+          <MoneyField id="entry-fee" label="Комиссия, если была" value={fee} onChange={setFee} />
+          {hasFee && (
+            <fieldset className="choice">
+              <legend>Кто платит комиссию</legend>
+              <div className="choice__options">
+                <ChoiceOption
+                  name="entry-transfer-fee-payer"
+                  checked={feePayer === "own"}
+                  onChange={() => setFeePayer("own")}
+                  label="Я, своими"
+                  swatch="own"
+                />
+                <ChoiceOption
+                  name="entry-transfer-fee-payer"
+                  checked={feePayer === "company"}
+                  onChange={() => setFeePayer("company")}
+                  label="Компания"
+                  swatch="company"
+                />
+              </div>
+              {feePayer && (
+                <p className="field__hint">
+                  {feePayer === "company"
+                    ? "Комиссия спишется со счёта «откуда» и съест его аванс, долг не изменится."
+                    : "Комиссия спишется со своих денег на счёте «откуда»: уменьшится только остаток."}
+                </p>
+              )}
+            </fieldset>
+          )}
+        </>
+      )}
 
       {type === "company_topup" && (
         <>
@@ -273,10 +422,10 @@ export function EntryForm(props: {
       {type === "company_advance_return" && (
         <p className="field__hint">
           Компания забирает свои деньги с этого счёта: аванс и остаток уменьшатся, долг не изменится.
-          {withdrawalAdvance !== null && (
+          {advanceOnDate !== null && (
             <>
               {" "}
-              Аванс на эту дату <span className="amount">{formatMoney(withdrawalAdvance, "KZT")}</span>, изъять
+              Аванс на эту дату <span className="amount">{formatMoney(advanceOnDate, "KZT")}</span>, изъять
               можно не больше.
             </>
           )}
@@ -378,9 +527,10 @@ function ChoiceOption(props: {
   onChange: () => void;
   label: string;
   swatch?: "own" | "company";
+  wide?: boolean;
 }) {
   return (
-    <label className="choice__option">
+    <label className={`choice__option${props.wide ? " choice__option--wide" : ""}`}>
       <input type="radio" name={props.name} checked={props.checked} onChange={props.onChange} />
       <span>
         {props.swatch && <span className={`swatch swatch--${props.swatch}`} aria-hidden="true" />}
@@ -438,6 +588,25 @@ function useAdvanceOnDate(accountId: string, date: string, entryId?: string): nu
   return advance;
 }
 
+/** «Я должен компании» на дату для погашения долга в аванс: считает сервер (debt_on_date), пауза 250 мс. */
+function useDebtOnDate(active: boolean, date: string, entryId?: string): number | null {
+  const [debt, setDebt] = useState<number | null>(null);
+  useEffect(() => {
+    setDebt(null);
+    if (!active || !date) return;
+    let live = true;
+    const t = window.setTimeout(async () => {
+      const { data, error } = await supabase.rpc("debt_on_date", { p_occurred_on: date, p_entry_id: entryId ?? null });
+      if (live && !error) setDebt((data as { i_owe_company_minor: number }).i_owe_company_minor);
+    }, 250);
+    return () => {
+      live = false;
+      window.clearTimeout(t);
+    };
+  }, [active, date, entryId]);
+  return debt;
+}
+
 function entryErrorText(
   error: { message?: string; details?: string | null },
   isSelf: (d: Record<string, unknown>) => boolean,
@@ -445,6 +614,10 @@ function entryErrorText(
   if (error.message === "advance_return_too_big") {
     const d = errorDetails(error);
     return advanceReturnErrorText(d, isSelf(d));
+  }
+  if (error.message === "debt_overpay") {
+    const d = errorDetails(error);
+    return debtOverpayErrorText(d, isSelf(d));
   }
   if (error.message === "entry_before_start") {
     const d = errorDetails(error);

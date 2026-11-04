@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceReturnErrorText, entryTitle, errorDetails, formatSigned, warningLines } from "./entries";
+import { advanceReturnErrorText, debtOverpayErrorText, entryTitle, errorDetails, formatSigned, warningLines } from "./entries";
 
 const names = new Map([["a1", "Kaspi Gold"]]);
 
@@ -65,6 +65,23 @@ describe("advanceReturnErrorText", () => {
     expect(advanceReturnErrorText(details, false)).toBe(
       "Не получится: изъятие аванса 5 ноября 2026 на 60\u00a0000\u00a0₸ станет больше аванса на ту дату " +
         "(40\u00a0000\u00a0₸). Сначала измените или удалите это изъятие.",
+    );
+  });
+});
+
+describe("debtOverpayErrorText", () => {
+  it("on the entry itself names the debt on that date", () => {
+    expect(debtOverpayErrorText({ available_minor: 3000000, amount_minor: 5000000 }, true)).toBe(
+      "Погасить можно не больше 30 000 ₸: столько вы должны компании на эту дату.",
+    );
+  });
+
+  it("for a later repayment names it with its date and amount", () => {
+    expect(
+      debtOverpayErrorText({ occurred_on: "2026-11-03", available_minor: 0, amount_minor: 3000000 }, false),
+    ).toBe(
+      "Не получится: погашение долга 3 ноября 2026 на 30 000 ₸ станет больше долга на ту дату (0 ₸). " +
+        "Сначала измените или удалите это погашение.",
     );
   });
 });
