@@ -2,7 +2,7 @@
 -- Суммы в тиынах: 1 500 ₸ = 150 000.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(29);
+select plan(30);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'owner@example.com'),
@@ -50,6 +50,8 @@ select results_eq(
   $$ select company_owes_me_minor, i_owe_company_minor, net_minor from public.v_company_settlement $$,
   $$ values (1200000::bigint, 500000::bigint, 700000::bigint) $$,
   'TC-OPENING: opening balance leaves both debt sides and the net as they were');
+select is((select o -> 'personal' -> 'spent_minor' from public.overview('2026-11-01', '2026-11-30') o), '0'::jsonb,
+  'TC-OPENING: personal spending for the period is 0, opening entries are out of spending breakdowns');
 
 -- Дата старта счёта не раньше даты начала учёта; счёт не создан.
 select is(pg_temp.error_of($$ select public.create_account(p_name => 'Ранний', p_type => 'card',

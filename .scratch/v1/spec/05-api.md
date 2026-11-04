@@ -108,6 +108,8 @@
 ### v_overview
 Агрегаты: `total_balance_minor, total_own_minor, total_company_advance_minor, personal_spend_period_minor` (период параметром или за текущий месяц).
 
+Реализация (тикет 19): RPC `overview(p_from date default null, p_to date default null)` → `{total_balance_minor, total_own_minor, total_company_advance_minor, company_owes_me_minor, i_owe_company_minor, net_minor, personal: {from, to, expenses_minor, adjustments_minor, refunds_minor, spent_minor}, accounts: [{account_id, name, type, bank, mask, currency, balance_minor, advance_minor, own_minor, balance_kzt_minor, rate, rate_date}], unconverted: [{account_id, name, currency, balance_minor}], inbox_items, today}`; без параметров текущий месяц по часовому поясу учёта, начало позже конца = `period_invalid` (`{from, to}`). `accounts` только неархивные; `rate` строкой. Представление `v_overview` = те же итоги за текущий месяц одной строкой (плюс `company_owes_me_minor`, `i_owe_company_minor`, `net_minor`, `period_from`, `period_to`).
+
 ### Прямые таблицы (через PostgREST с RLS)
 - `accounts`, `categories` (справочники, чтение и простые правки имени/иконки можно разрешить напрямую, так как они не трогают деньги; создание/архив счёта лучше через RPC для guard).
 - `entries` (чтение для лент и инбокса; запись только через RPC).

@@ -12,6 +12,7 @@ import {
   type EntryRow,
 } from "../entries";
 import { EDITABLE, EntryItem } from "./Entries";
+import { BigMoney } from "./BigMoney";
 
 type Settlement = { company_owes_me_minor: number; i_owe_company_minor: number; net_minor: number };
 
@@ -226,17 +227,4 @@ function netSentence(net: number): string {
   if (net > 0) return `Если закрыть всё встречно, компания должна вам ${formatMoney(net, "KZT")}.`;
   if (net < 0) return `Если закрыть всё встречно, вы должны компании ${formatMoney(-net, "KZT")}.`;
   return "Вы с компанией в расчёте.";
-}
-
-/** Крупная сумма: знак валюты на ступень меньше и тоньше (docs/design.md). */
-function BigMoney({ minor }: { minor: number }) {
-  const text = formatMoney(minor, "KZT");
-  const sign = " ₸";
-  if (!text.endsWith(sign)) return <>{text}</>;
-  return (
-    <>
-      {text.slice(0, -sign.length)}
-      <span className="currency">{sign}</span>
-    </>
-  );
 }

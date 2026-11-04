@@ -169,12 +169,15 @@ function accountMeta(a: AccountRow): string {
 }
 
 /** Полоса принадлежности: длины частей пропорциональны суммам с сервера, только для картинки. */
-export function OwnershipBar({ own, company }: { own: number; company: number }) {
+export function OwnershipBar({ own, company, hero }: { own: number; company: number; hero?: boolean }) {
   const ownGrow = Math.max(own, 0);
   const companyGrow = Math.max(company, 0);
   const empty = ownGrow + companyGrow === 0;
   return (
-    <span className={`ownership-bar ownership-bar--account${empty ? " is-empty" : ""}`} aria-hidden="true">
+    <span
+      className={`ownership-bar ${hero ? "ownership-bar--hero" : "ownership-bar--account"}${empty ? " is-empty" : ""}`}
+      aria-hidden="true"
+    >
       <span className="own" style={{ flexGrow: ownGrow }} />
       <span className="company" style={{ flexGrow: companyGrow }} />
     </span>

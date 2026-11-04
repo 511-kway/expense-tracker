@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { OwnershipMark } from "./OwnershipMark";
 import { CompanySettlement } from "./CompanySettlement";
 import { Accounts, type AccountRow } from "./Accounts";
@@ -11,23 +11,24 @@ import { NoteComposer, Notes, type NoteRow } from "./Notes";
 import { SheetDialog } from "./form";
 import { Export } from "./Export";
 import { Import } from "./Import";
+import { Overview } from "./Overview";
 import { RefundForm, refundParentOf, type RefundParent } from "./RefundForm";
 import { supabase } from "../supabase";
 import { warningLines, type EntryRow } from "../entries";
 
-type Section = { id: string; label: string; title: string; empty: string; phone: boolean };
+/** Раздел: основные (primary) в нижней панели телефона и первой группой слева, остальные в «Ещё». */
+type Section = { id: string; label: string; title: string; primary: boolean };
 
-// Экраны появятся в следующих тикетах; пока у каждого пустое состояние.
 const sections: Section[] = [
-  { id: "overview", label: "Обзор", title: "Обзор", empty: "Счетов пока нет. Добавьте первый счёт, и здесь появятся остаток, свои деньги и аванс.", phone: true },
-  { id: "entries", label: "Записи", title: "Записи", empty: "Записей пока нет. Запишите первую трату.", phone: true },
-  { id: "inbox", label: "Инбокс", title: "Инбокс", empty: "Инбокс пуст: черновиков, записей без категории и новых заметок нет.", phone: true },
-  { id: "company", label: "С компанией", title: "Расчёт с компанией", empty: "", phone: true },
-  { id: "accounts", label: "Счета", title: "Счета", empty: "Счетов пока нет. Добавьте карту, банковский счёт или наличные.", phone: false },
-  { id: "categories", label: "Категории", title: "Категории", empty: "", phone: false },
-  { id: "notes", label: "Заметки", title: "Заметки", empty: "", phone: false },
-  { id: "import", label: "Импорт", title: "Импорт", empty: "", phone: false },
-  { id: "export", label: "Экспорт", title: "Экспорт", empty: "", phone: false },
+  { id: "overview", label: "Обзор", title: "Обзор", primary: true },
+  { id: "entries", label: "Записи", title: "Записи", primary: true },
+  { id: "inbox", label: "Инбокс", title: "Инбокс", primary: true },
+  { id: "company", label: "С компанией", title: "Расчёт с компанией", primary: true },
+  { id: "accounts", label: "Счета", title: "Счета", primary: false },
+  { id: "categories", label: "Категории", title: "Категории", primary: false },
+  { id: "notes", label: "Заметки", title: "Заметки", primary: false },
+  { id: "import", label: "Импорт", title: "Импорт", primary: false },
+  { id: "export", label: "Экспорт", title: "Экспорт", primary: false },
 ];
 
 function sectionFromHash(): Section {
@@ -84,10 +85,30 @@ export function Shell({
     setNotices([...extra, ...warningLines(result.warnings, names, currencies)]);
   }
 
+  const more = useRef<HTMLDetailsElement>(null);
+  // «Ещё» закрывается кликом мимо меню и клавишей Escape.
+  useEffect(() => {
+    const close = (e: MouseEvent | KeyboardEvent) => {
+      const el = more.current;
+      if (!el?.open) return;
+      if (e instanceof KeyboardEvent ? e.key === "Escape" : !el.contains(e.target as Node)) {
+        el.open = false;
+        if (e instanceof KeyboardEvent) el.querySelector("summary")?.focus();
+      }
+    };
+    document.addEventListener("click", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("click", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, []);
   useEffect(() => {
     const onHash = () => {
       setCurrent(sectionFromHash());
       setSheet(null);
+      if (more.current) more.current.open = false;
+      window.scrollTo(0, 0);
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -103,7 +124,8 @@ export function Shell({
       )}
     </a>
   );
-  const phoneSections = sections.filter((s) => s.phone);
+  const primary = sections.filter((s) => s.primary);
+  const secondary = sections.filter((s) => !s.primary);
 
   return (
     <div className="shell">
@@ -113,24 +135,18 @@ export function Shell({
           Трекер затрат
         </span>
         <span className="shell__header-actions">
-          <a className="button button--quiet" href="#/accounts" aria-current={current.id === "accounts" ? "page" : undefined}>
-            Счета
-          </a>
-          <a className="button button--quiet" href="#/categories" aria-current={current.id === "categories" ? "page" : undefined}>
-            Категории
-          </a>
-          <a className="button button--quiet" href="#/notes" aria-current={current.id === "notes" ? "page" : undefined}>
-            Заметки
-          </a>
-          <a className="button button--quiet" href="#/import" aria-current={current.id === "import" ? "page" : undefined}>
-            Импорт
-          </a>
-          <a className="button button--quiet" href="#/export" aria-current={current.id === "export" ? "page" : undefined}>
-            Экспорт
-          </a>
-          <button className="button button--quiet" type="button" onClick={onSignOut}>
-            Выйти
-          </button>
+          <details className="more" ref={more}>
+            <summary className={current.primary ? undefined : "is-current"}>
+              {current.primary ? "Ещё" : current.label}
+              <span className="more__chevron" aria-hidden="true" />
+            </summary>
+            <nav className="more__menu" aria-label="Ещё разделы">
+              {secondary.map(link)}
+              <button className="more__signout" type="button" onClick={onSignOut}>
+                Выйти
+              </button>
+            </nav>
+          </details>
         </span>
       </header>
 
@@ -141,7 +157,9 @@ export function Shell({
         </span>
         <CaptureButton wide onClick={() => setSheet({ quick: true })} />
         <nav className="nav nav--side" aria-label="Разделы">
-          {sections.map(link)}
+          {primary.map(link)}
+          <span className="nav__divider" aria-hidden="true" />
+          {secondary.map(link)}
         </nav>
         <div className="shell__account">
           <span>{name ?? email}</span>
@@ -168,7 +186,9 @@ export function Shell({
             </div>
           )}
           <div key={`${current.id}:${revision}`} className="section__body">
-            {current.id === "company" ? (
+            {current.id === "overview" ? (
+              <Overview />
+            ) : current.id === "company" ? (
               <CompanySettlement accountingStartDate={accountingStartDate} onEdit={(entry) => setSheet({ entry })} />
             ) : current.id === "accounts" ? (
               <Accounts accountingStartDate={accountingStartDate} />
@@ -188,9 +208,7 @@ export function Shell({
               <Export accountingStartDate={accountingStartDate} />
             ) : current.id === "notes" ? (
               <Notes onProcess={(note) => setSheet({ note })} onOpenEntry={(entry) => setSheet({ entry })} />
-            ) : (
-              <p className="empty">{current.empty}</p>
-            )}
+            ) : null}
           </div>
         </section>
       </main>
@@ -235,9 +253,9 @@ export function Shell({
       )}
 
       <nav className="nav nav--bottom" aria-label="Разделы">
-        {phoneSections.slice(0, 2).map(link)}
+        {primary.slice(0, 2).map(link)}
         <CaptureButton onClick={() => setSheet({ quick: true })} />
-        {phoneSections.slice(2).map(link)}
+        {primary.slice(2).map(link)}
       </nav>
     </div>
   );
