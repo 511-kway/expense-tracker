@@ -1,0 +1,435 @@
+/* Визуальный язык: docs/design.md. Цвет несёт смысл: --own и --company только для «свои» и «компания». */
+@import "@fontsource-variable/onest";
+
+:root {
+  color-scheme: light dark;
+  --paper: #f2f4f6;
+  --surface: #ffffff;
+  --ink: #1a2233;
+  --ink-muted: #5b6577;
+  --line: #d9dee5;
+  --own: #1f7a6b;
+  --company: #b87a12;
+  --negative: #b3261e;
+  --focus: #2f5bd3;
+
+  --text-xs: 0.8125rem;
+  --text-sm: 0.9375rem;
+  --text-md: 1.0625rem;
+  --text-lg: 1.375rem;
+  --text-xl: 2rem;
+  --text-2xl: 3rem;
+
+  --radius-control: 8px;
+  --radius-sheet: 16px;
+  --radius-bar: 4px;
+  --content-max: 720px;
+  --shadow-float: 0 6px 20px rgb(26 34 51 / 0.22);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #14181f;
+    --surface: #1c222b;
+    --ink: #e6eaf0;
+    --ink-muted: #98a2b3;
+    --line: #2c3440;
+    --own: #4fb3a1;
+    --company: #e0a940;
+    --negative: #f2867e;
+    --focus: #7c9bff;
+    --shadow-float: 0 6px 20px rgb(0 0 0 / 0.5);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Onest Variable", system-ui, sans-serif;
+  font-size: var(--text-md);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.muted {
+  color: var(--ink-muted);
+}
+
+.amount {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Поля и кнопки */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  min-height: 3rem;
+  padding: 0 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.button:hover {
+  border-color: var(--ink-muted);
+}
+
+.button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.button--primary {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.button--primary:hover {
+  border-color: var(--ink);
+  opacity: 0.9;
+}
+
+.button--quiet {
+  min-height: 2.5rem;
+  padding: 0 0.75rem;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-muted);
+}
+
+.button--quiet:hover {
+  border-color: transparent;
+  color: var(--ink);
+}
+
+.field {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.field label {
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}
+
+.field input {
+  min-height: 3rem;
+  padding: 0 0.875rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.error {
+  color: var(--negative);
+  font-size: var(--text-sm);
+}
+
+/* Полоса принадлежности: свои + аванс. Здесь как знак приложения. */
+.ownership-bar {
+  display: flex;
+  gap: 3px;
+  height: 0.75rem;
+}
+
+.ownership-bar span {
+  border-radius: var(--radius-bar);
+  transition: flex-grow 200ms ease;
+}
+
+.ownership-bar .own {
+  background: var(--own);
+}
+
+.ownership-bar .company {
+  background: var(--company);
+}
+
+/* Экраны вне приложения: вход, лист ожидания */
+.gate {
+  min-height: 100dvh;
+  padding: clamp(3rem, 14vh, 9rem) 1.25rem 3rem;
+}
+
+.gate__inner {
+  display: grid;
+  gap: 2rem;
+  max-width: 26rem;
+  margin: 0 auto;
+}
+
+@media (min-width: 960px) {
+  .gate__inner {
+    margin-left: max(1.25rem, calc((100vw - var(--content-max)) / 2));
+  }
+}
+
+.gate__mark {
+  width: 7.5rem;
+}
+
+.gate__text {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.gate__text p {
+  font-size: var(--text-md);
+}
+
+.gate__actions {
+  display: grid;
+  gap: 1rem;
+}
+
+.dev-login {
+  display: grid;
+  gap: 0.875rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.dev-login p {
+  font-size: var(--text-sm);
+}
+
+/* Оболочка приложения */
+.shell {
+  min-height: 100dvh;
+}
+
+.shell__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.shell__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  font-weight: 600;
+}
+
+.shell__brand .ownership-bar {
+  width: 2.25rem;
+  height: 0.5rem;
+}
+
+.shell__main {
+  max-width: var(--content-max);
+  padding: 1.5rem 1.25rem 7rem;
+}
+
+.section {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.empty {
+  padding: 1.5rem 0;
+  border-top: 1px solid var(--line);
+  color: var(--ink-muted);
+}
+
+.nav {
+  display: grid;
+}
+
+.nav a {
+  display: flex;
+  align-items: center;
+  color: var(--ink-muted);
+  text-decoration: none;
+  border-radius: var(--radius-control);
+}
+
+.nav a:hover {
+  color: var(--ink);
+}
+
+.nav a[aria-current="page"] {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.capture {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  font: inherit;
+  font-weight: 600;
+  box-shadow: var(--shadow-float);
+  cursor: pointer;
+}
+
+.capture:disabled {
+  cursor: default;
+}
+
+/* Телефон: нижняя панель из 4 пунктов, «Записать» по центру */
+.nav--bottom {
+  position: fixed;
+  inset: auto 0 0;
+  grid-template-columns: 1fr 1fr auto 1fr 1fr;
+  align-items: end;
+  padding: 0.5rem 0.5rem calc(0.5rem + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.nav--bottom a {
+  justify-content: center;
+  min-height: 3rem;
+  padding: 0 0.25rem;
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+.nav--bottom .capture {
+  width: 3.5rem;
+  height: 3.5rem;
+  margin: -1.75rem 0.5rem 0;
+  font-size: var(--text-xl);
+  line-height: 1;
+}
+
+.nav--side,
+.shell__account {
+  display: none;
+}
+
+/* От 960px: левая колонка навигации, контент справа */
+@media (min-width: 960px) {
+  .shell {
+    display: grid;
+    grid-template-columns: 15rem 1fr;
+  }
+
+  .shell__header,
+  .nav--bottom {
+    display: none;
+  }
+
+  .shell__side {
+    position: sticky;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    height: 100dvh;
+    padding: 1.5rem 1rem;
+    border-right: 1px solid var(--line);
+  }
+
+  .shell__side .shell__brand {
+    padding: 0 0.75rem;
+  }
+
+  .nav--side {
+    display: grid;
+    gap: 0.125rem;
+  }
+
+  .nav--side a {
+    min-height: 2.5rem;
+    padding: 0 0.75rem;
+  }
+
+  .nav--side a[aria-current="page"] {
+    background: var(--surface);
+  }
+
+  .shell__side .capture {
+    min-height: 3rem;
+    padding: 0 1.25rem;
+    border-radius: var(--radius-control);
+    box-shadow: none;
+  }
+
+  .shell__account {
+    display: grid;
+    gap: 0.25rem;
+    margin-top: auto;
+    padding: 0 0.75rem;
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+  }
+
+  .shell__account .button--quiet {
+    justify-self: start;
+    padding: 0;
+    min-height: 2rem;
+  }
+
+  .shell__main {
+    padding: 2.5rem 3rem;
+  }
+}
+
+@media (max-width: 959px) {
+  .shell__side {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

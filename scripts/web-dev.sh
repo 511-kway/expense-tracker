@@ -11,6 +11,7 @@ fi
 [ -d node_modules ] || npm ci
 
 eval "$(supabase status -o env | grep -E '^(API_URL|ANON_KEY)=')"
-printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\n' "$API_URL" "$ANON_KEY" > .env.local
+# VITE_DEV_EMAIL_LOGIN: вход по ссылке из письма (Mailpit), только локально. В проде не ставить.
+printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\nVITE_DEV_EMAIL_LOGIN=true\n' "$API_URL" "$ANON_KEY" > .env.local
 
 exec npm run dev

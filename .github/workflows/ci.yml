@@ -13,6 +13,12 @@ jobs:
     name: migrations + pgTAP
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # config.toml ссылается на env(GOOGLE_*); в CI Google не нужен, хватает пустых значений.
+      GOOGLE_CLIENT_ID: ""
+      GOOGLE_CLIENT_SECRET: ""
+      # Тестам email владельца не нужен (они создают своих пользователей), но значение не личное.
+      ADMIN_EMAIL: owner@example.com
     steps:
       - uses: actions/checkout@v4
 

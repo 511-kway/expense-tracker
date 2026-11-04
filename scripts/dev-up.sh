@@ -18,6 +18,12 @@ if [[ "$binding" != "127.0.0.1" ]]; then
   docker network create -o com.docker.network.bridge.host_binding_ipv4=127.0.0.1 "$net" >/dev/null
 fi
 
+# Google OAuth из корневого .env (config.toml ссылается на env(...)). Без ключей стек тоже стартует.
+if [[ -f .env ]]; then
+  set -a; source .env; set +a
+fi
+export GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-}" GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-}"
+
 supabase start "$@"
 
 if ss -tln | awk '{print $4}' | grep -E '^(0\.0\.0\.0|\[::\]):543' >/dev/null; then
@@ -26,3 +32,5 @@ if ss -tln | awk '{print $4}' | grep -E '^(0\.0\.0\.0|\[::\]):543' >/dev/null; t
   exit 1
 fi
 echo "Supabase слушает только 127.0.0.1."
+
+./scripts/allow-owner.sh || echo "Задайте ADMIN_EMAIL в .env и запустите ./scripts/allow-owner.sh" >&2

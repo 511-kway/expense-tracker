@@ -8,4 +8,11 @@ if (!url || !anonKey) {
 }
 
 export const supabaseUrl = url;
-export const supabase = createClient(url, anonKey);
+// PKCE: после входа в адресе приходит ?code=, а не токены в #hash.
+export const supabase = createClient(url, anonKey, { auth: { flowType: "pkce" } });
+
+/**
+ * Вход по ссылке из письма: только `vite dev` с VITE_DEV_EMAIL_LOGIN=true (docs/dev.md).
+ * В сборке (`vite build`) import.meta.env.DEV = false, и форма вырезается при любом флаге.
+ */
+export const devEmailLogin = import.meta.env.DEV && import.meta.env.VITE_DEV_EMAIL_LOGIN === "true";

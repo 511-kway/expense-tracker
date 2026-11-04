@@ -1,24 +1,21 @@
-import { useEffect, useState } from "react";
-import { supabaseUrl } from "./supabase";
-
-type Health = "checking" | "up" | "down";
+import { useAuth } from "./auth";
+import { Login } from "./screens/Login";
+import { Waitlist } from "./screens/Waitlist";
+import { Shell } from "./screens/Shell";
 
 export function App() {
-  const [health, setHealth] = useState<Health>("checking");
+  const [auth, signOut] = useAuth();
 
-  useEffect(() => {
-    fetch(`${supabaseUrl}/auth/v1/health`)
-      .then((r) => setHealth(r.ok ? "up" : "down"))
-      .catch(() => setHealth("down"));
-  }, []);
-
-  return (
-    <main>
-      <h1>Трекер затрат</h1>
-      <p>
-        Сервер:{" "}
-        {health === "checking" ? "проверяю…" : health === "up" ? "доступен" : "недоступен"}
-      </p>
-    </main>
-  );
+  switch (auth.kind) {
+    case "loading":
+      return <div className="gate" aria-busy="true" />;
+    case "signed-out":
+      return <Login error={auth.error} />;
+    case "waitlisted":
+      return <Waitlist onBack={signOut} />;
+    case "error":
+      return <Login error={auth.message} />;
+    case "signed-in":
+      return <Shell email={auth.email} name={auth.name} onSignOut={signOut} />;
+  }
 }
