@@ -1,6 +1,6 @@
 # Каркас репозитория: Supabase, тесты, CI
 
-Status: in-progress
+Status: done
 Blocked by: 01
 
 Веха 1 (схема и движок). Спека: `.scratch/v1/spec/`, ADR: `docs/adr/`, термины: `GLOSSARY.md`.
