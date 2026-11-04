@@ -1,0 +1,4 @@
+repository=https://github.com/supabase/supabase
+path=docker
+tag=self-hosted/v0.8.3
+commit=bc27d2661edd09a5d0b8d76ce33da6d4071a756e

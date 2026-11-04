@@ -5,3 +5,4 @@ node_modules/
 dist/
 supabase/.temp/
 supabase/.branches/
+deploy/.build/

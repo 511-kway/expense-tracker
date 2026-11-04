@@ -1,0 +1,96 @@
+# Прод-стек поверх официального self-hosted Supabase (deploy/supabase/docker-compose.yml, без правок).
+# Запуск только через deploy/compose.sh: он задаёт project directory = deploy/supabase, поэтому
+# относительные пути ниже считаются от deploy/supabase.
+#
+# Что меняется относительно upstream:
+# - наружу публикует порты только Caddy (80/443); шлюз API на 127.0.0.1, пулер выключен;
+# - GoTrue: только Google, адреса из DOMAIN;
+# - данные в ${DATA_DIR}, функции и фронт из deploy/.build (собирает scripts/deploy.sh);
+# - Edge Functions: свой main с проверкой JWT по функциям (deploy/functions-main).
+
+name: expense-tracker
+
+services:
+  studio:
+    environment:
+      SUPABASE_PUBLIC_URL: https://${DOMAIN:?DOMAIN не задан в deploy/.env}
+    volumes: !override
+      - ${DATA_DIR:?DATA_DIR не задан}/snippets:/app/snippets
+      - ../.build/functions:/app/edge-functions:ro
+
+  api-gw:
+    # Studio висит на корне шлюза под basic auth; Caddy проксирует сюда только пути API, а сам
+    # порт открыт лишь на 127.0.0.1 (SSH-туннель). Docker публикует порты в обход ufw, поэтому
+    # привязка к 127.0.0.1 обязательна.
+    ports: !override
+      - 127.0.0.1:${API_GW_HTTP_PORT:-8000}:8000/tcp
+    environment:
+      SUPABASE_PUBLIC_URL: https://${DOMAIN}
+
+  auth:
+    environment:
+      API_EXTERNAL_URL: https://${DOMAIN}/auth/v1
+      GOTRUE_SITE_URL: https://${DOMAIN}
+      GOTRUE_URI_ALLOW_LIST: https://${DOMAIN},https://${DOMAIN}/**
+      GOTRUE_JWT_ISSUER: https://${DOMAIN}/auth/v1
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "false"
+      GOTRUE_EXTERNAL_PHONE_ENABLED: "false"
+      GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: "false"
+      GOTRUE_EXTERNAL_GOOGLE_ENABLED: "true"
+      GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?GOOGLE_CLIENT_ID не задан в deploy/.env}
+      GOTRUE_EXTERNAL_GOOGLE_SECRET: ${GOOGLE_CLIENT_SECRET:?GOOGLE_CLIENT_SECRET не задан в deploy/.env}
+      GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI: https://${DOMAIN}/auth/v1/callback
+
+  storage:
+    environment:
+      STORAGE_PUBLIC_URL: https://${DOMAIN}
+    volumes: !override
+      - ${DATA_DIR:?DATA_DIR не задан}/storage:/var/lib/storage
+
+  imgproxy:
+    volumes: !override
+      - ${DATA_DIR}/storage:/var/lib/storage
+
+  functions:
+    volumes: !override
+      # Собирает scripts/deploy.sh: functions-main как main/ плюс supabase/functions без тестов.
+      - ../.build/functions:/home/deno/functions:ro
+      - deno-cache:/root/.cache/deno
+    environment:
+      SUPABASE_PUBLIC_URL: https://${DOMAIN}
+
+  db:
+    volumes:
+      # Тот же путь в контейнере, что у upstream ./volumes/db/data: compose заменяет источник.
+      - ${DATA_DIR}/db:/var/lib/postgresql/data
+
+  supavisor:
+    # Пулер не нужен (PostgREST, GoTrue и Storage ходят в db напрямую), а upstream публикует его
+    # порты 5432/6543 на 0.0.0.0. Профиль, который никто не включает, = сервис не запускается.
+    profiles: ["pooler"]
+    ports: !reset []
+
+  caddy:
+    image: caddy:2.11.7-alpine
+    container_name: expense-tracker-caddy
+    restart: unless-stopped
+    depends_on:
+      api-gw:
+        condition: service_healthy
+    ports:
+      - 80:80
+      - 443:443
+      - 443:443/udp
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL не задан в deploy/.env}
+    volumes:
+      - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # deploy/.build/web/current -> web-<коммит>: deploy.sh переключает ссылку атомарно.
+      - ../.build/web:/srv:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  caddy-data:
+  caddy-config:

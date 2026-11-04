@@ -78,3 +78,66 @@ jobs:
       - run: deno check fetch_rates/index.ts export/index.ts import_parse/index.ts claude_ingest/index.ts
       # Тесты не ходят в сеть: HTTP к Нацбанку, кэш, выборки экспорта и доступ импорта подменяются в *_test.ts.
       - run: deno test
+
+  deploy-config:
+    name: deploy config (compose, Caddyfile, shellcheck)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shellcheck
+        run: docker run --rm -v "$PWD:/mnt:ro" -w /mnt koalaman/shellcheck:v0.11.0 --severity=warning scripts/*.sh deploy/*.sh
+
+      # Секреты фиктивные, только чтобы compose собрал итоговый конфиг.
+      - name: docker compose config
+        run: |
+          ./deploy/gen-secrets.sh "$RUNNER_TEMP/ci.env"
+          sed -i -e 's/^DOMAIN=.*/DOMAIN=money.example.com/' -e 's/^ACME_EMAIL=.*/ACME_EMAIL=admin@example.com/' \
+            -e 's/^ADMIN_EMAIL=.*/ADMIN_EMAIL=owner@example.com/' -e 's/^GOOGLE_CLIENT_ID=.*/GOOGLE_CLIENT_ID=ci/' \
+            -e 's/^GOOGLE_CLIENT_SECRET=.*/GOOGLE_CLIENT_SECRET=ci/' "$RUNNER_TEMP/ci.env"
+          DEPLOY_ENV_FILE="$RUNNER_TEMP/ci.env" ./deploy/compose.sh config > "$RUNNER_TEMP/compose.yml"
+          # Наружу порты публикует только Caddy; шлюз только на 127.0.0.1.
+          services_with_ports=$(DEPLOY_ENV_FILE="$RUNNER_TEMP/ci.env" ./deploy/compose.sh config --format json \
+            | jq -r '.services | to_entries[] | select(.value.ports != null) | .key + " " + ([.value.ports[] | .host_ip // "0.0.0.0"] | join(","))')
+          echo "$services_with_ports"
+          grep -q '^caddy ' <<<"$services_with_ports"
+          [[ "$(grep -v '^caddy ' <<<"$services_with_ports" | grep -c '0\.0\.0\.0' || true)" == 0 ]]
+
+      - name: caddy validate
+        run: |
+          docker run --rm -e DOMAIN=money.example.com -e ACME_EMAIL=admin@example.com \
+            -v "$PWD/deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.11.7-alpine \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+  # Автодеплой на прод: только push в main, после всех тестов, и только когда в репозитории
+  # заведена переменная DEPLOY_ENABLED=true (до готовности сервера джоба пропускается).
+  # Self-hosted runner не используется: репозиторий публичный. Раннер GitHub заходит по SSH
+  # ключом, которому на сервере разрешён только scripts/deploy.sh (docs/deploy.md).
+  deploy:
+    name: deploy to production
+    needs: [db-tests, web, edge-functions, deploy-config]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: Deploy over SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # Команда на сервере зафиксирована (forced command); SHA уходит в SSH_ORIGINAL_COMMAND,
+          # deploy.sh проверяет, что этот коммит входит в выкатываемую ветку.
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 \
+            "deploy@$DEPLOY_HOST" "$GITHUB_SHA"
