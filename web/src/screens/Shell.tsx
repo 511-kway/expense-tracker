@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { OwnershipMark } from "./OwnershipMark";
 import { CompanySettlement } from "./CompanySettlement";
-import { Accounts } from "./Accounts";
+import { Accounts, type AccountRow } from "./Accounts";
+import { Categories, type CategoryRow } from "./Categories";
+import { Entries } from "./Entries";
+import { EntryForm, type SaveResult } from "./EntryForm";
+import { SheetDialog } from "./form";
+import { supabase } from "../supabase";
+import { warningLines, type EntryRow } from "../entries";
 
 type Section = { id: string; label: string; title: string; empty: string; phone: boolean };
 
@@ -12,6 +18,7 @@ const sections: Section[] = [
   { id: "inbox", label: "Инбокс", title: "Инбокс", empty: "Инбокс пуст: черновиков, записей без категории и новых заметок нет.", phone: true },
   { id: "company", label: "С компанией", title: "Расчёт с компанией", empty: "", phone: true },
   { id: "accounts", label: "Счета", title: "Счета", empty: "Счетов пока нет. Добавьте карту, банковский счёт или наличные.", phone: false },
+  { id: "categories", label: "Категории", title: "Категории", empty: "", phone: false },
 ];
 
 function sectionFromHash(): Section {
@@ -31,9 +38,33 @@ export function Shell({
   accountingStartDate: string;
 }) {
   const [current, setCurrent] = useState(sectionFromHash);
+  // Лист записи: новая (entry не задан) или правка. revision перемонтирует экран после сохранения.
+  const [sheet, setSheet] = useState<{ entry?: EntryRow } | null>(null);
+  const [revision, setRevision] = useState(0);
+  const [toast, setToast] = useState<string | null>(null);
+  const [notices, setNotices] = useState<string[]>([]);
 
   useEffect(() => {
-    const onHash = () => setCurrent(sectionFromHash());
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 3000);
+    return () => window.clearTimeout(t);
+  }, [toast]);
+
+  async function saved(result: SaveResult) {
+    setSheet(null);
+    setToast(result.message);
+    setRevision((r) => r + 1);
+    if (result.warnings.length === 0) return setNotices([]);
+    const { data } = await supabase.from("accounts").select("id, name");
+    const names = new Map((data ?? []).map((a) => [a.id as string, a.name as string]));
+    setNotices(warningLines(result.warnings, names));
+  }
+
+  useEffect(() => {
+    const onHash = () => {
+      setCurrent(sectionFromHash());
+      setSheet(null);
+    };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -56,6 +87,9 @@ export function Shell({
           <a className="button button--quiet" href="#/accounts" aria-current={current.id === "accounts" ? "page" : undefined}>
             Счета
           </a>
+          <a className="button button--quiet" href="#/categories" aria-current={current.id === "categories" ? "page" : undefined}>
+            Категории
+          </a>
           <button className="button button--quiet" type="button" onClick={onSignOut}>
             Выйти
           </button>
@@ -67,7 +101,7 @@ export function Shell({
           <OwnershipMark />
           Трекер затрат
         </span>
-        <CaptureButton wide />
+        <CaptureButton wide onClick={() => setSheet({})} />
         <nav className="nav nav--side" aria-label="Разделы">
           {sections.map(link)}
         </nav>
@@ -83,30 +117,104 @@ export function Shell({
       <main className="shell__main">
         <section className="section" aria-labelledby="section-title">
           <h1 id="section-title">{current.title}</h1>
-          {current.id === "company" ? (
-            <CompanySettlement accountingStartDate={accountingStartDate} />
-          ) : current.id === "accounts" ? (
-            <Accounts accountingStartDate={accountingStartDate} />
-          ) : (
-            <p className="empty">{current.empty}</p>
+          {notices.length > 0 && (
+            <div className="notice" role="status">
+              <ul>
+                {notices.map((n) => (
+                  <li key={n}>{n}</li>
+                ))}
+              </ul>
+              <button className="button button--quiet" type="button" onClick={() => setNotices([])}>
+                Понятно
+              </button>
+            </div>
           )}
+          <div key={`${current.id}:${revision}`} className="section__body">
+            {current.id === "company" ? (
+              <CompanySettlement accountingStartDate={accountingStartDate} />
+            ) : current.id === "accounts" ? (
+              <Accounts accountingStartDate={accountingStartDate} />
+            ) : current.id === "categories" ? (
+              <Categories />
+            ) : current.id === "entries" ? (
+              <Entries onEdit={(entry) => setSheet({ entry })} onCreate={() => setSheet({})} />
+            ) : (
+              <p className="empty">{current.empty}</p>
+            )}
+          </div>
         </section>
       </main>
 
+      {sheet && (
+        <EntrySheet
+          entry={sheet.entry}
+          accountingStartDate={accountingStartDate}
+          onClose={() => setSheet(null)}
+          onSaved={(r) => void saved(r)}
+        />
+      )}
+      {toast && (
+        <p className="toast" role="status">
+          {toast}
+        </p>
+      )}
+
       <nav className="nav nav--bottom" aria-label="Разделы">
         {phoneSections.slice(0, 2).map(link)}
-        <CaptureButton />
+        <CaptureButton onClick={() => setSheet({})} />
         {phoneSections.slice(2).map(link)}
       </nav>
     </div>
   );
 }
 
-/** «Записать»: форма записи появится в тикете 07. */
-function CaptureButton({ wide }: { wide?: boolean }) {
+/** «Записать»: открывает лист записи траты или поступления. */
+function CaptureButton({ wide, onClick }: { wide?: boolean; onClick: () => void }) {
   return (
-    <button className="capture" type="button" disabled title="Запись появится в следующей версии" aria-label="Записать">
+    <button className="capture" type="button" onClick={onClick} aria-label="Записать">
       {wide ? "+ Записать" : "+"}
     </button>
+  );
+}
+
+/** Лист записи: свежие счета и категории с сервера, затем форма. */
+function EntrySheet(props: {
+  entry?: EntryRow;
+  accountingStartDate: string;
+  onClose: () => void;
+  onSaved: (result: SaveResult) => void;
+}) {
+  const [refs, setRefs] = useState<{ accounts: AccountRow[]; categories: CategoryRow[] } | null | "error">(null);
+  useEffect(() => {
+    void (async () => {
+      const [a, c] = await Promise.all([
+        supabase
+          .from("v_account_balances")
+          .select("account_id, name, bank, type, mask, currency, start_date, balance_minor, advance_minor, own_minor, is_archived, has_entries")
+          .order("name"),
+        supabase.from("categories").select("id, name, is_archived").order("name"),
+      ]);
+      if (a.error || c.error) setRefs("error");
+      else setRefs({ accounts: a.data as AccountRow[], categories: c.data as CategoryRow[] });
+    })();
+  }, []);
+  return (
+    <SheetDialog title={props.entry ? "Запись" : "Новая запись"} onClose={props.onClose}>
+      {refs === null ? (
+        <p className="muted" aria-busy="true">Загружаем счета и категории…</p>
+      ) : refs === "error" ? (
+        <p className="error" role="alert">
+          Не получилось загрузить счета и категории. Закройте и откройте форму снова.
+        </p>
+      ) : (
+        <EntryForm
+          entry={props.entry}
+          accounts={refs.accounts}
+          categories={refs.categories}
+          accountingStartDate={props.accountingStartDate}
+          onSaved={props.onSaved}
+        />
+      )}
+    </SheetDialog>
   );
 }

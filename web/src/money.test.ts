@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amountOrZero, formatAmountInput, formatMoney, parseAmountInput } from "./money";
+import { amountOrZero, formatAmountInput, formatMoney, minorToAmountInput, parseAmountInput } from "./money";
 
 const NB = " ";
 
@@ -87,5 +87,14 @@ describe("amountOrZero", () => {
   it("gives null for input that is not an amount", () => {
     expect(amountOrZero("12,345")).toBeNull();
     expect(amountOrZero("abc")).toBeNull();
+  });
+});
+
+describe("minorToAmountInput", () => {
+  it("turns a saved amount back into the input text, round trip with parseAmountInput", () => {
+    expect(minorToAmountInput(6000000)).toBe("60\u00a0000");
+    expect(minorToAmountInput(150050)).toBe("1\u00a0500,50");
+    expect(minorToAmountInput(5)).toBe("0,05");
+    expect(parseAmountInput(minorToAmountInput(150050))).toEqual({ ok: true, minor: 150050 });
   });
 });

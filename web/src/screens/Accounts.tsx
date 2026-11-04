@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { MoneyField, SheetDialog } from "./form";
 import { supabase } from "../supabase";
-import { amountOrZero, formatAmountInput, formatMoney } from "../money";
+import { amountOrZero, formatMoney } from "../money";
 import { formatDate, todayInAlmaty } from "../dates";
 import { errorText } from "../errors";
 
@@ -174,39 +175,6 @@ export function OwnershipBar({ own, company }: { own: number; company: number })
       <span className="own" style={{ flexGrow: ownGrow }} />
       <span className="company" style={{ flexGrow: companyGrow }} />
     </span>
-  );
-}
-
-/** Лист формы: снизу на телефоне, панелью справа на десктопе. Esc и «Закрыть» закрывают. */
-function SheetDialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const d = ref.current;
-    if (d && !d.open) d.showModal();
-  }, []);
-  return (
-    <dialog
-      ref={ref}
-      className="sheet"
-      aria-labelledby="sheet-title"
-      onCancel={(e) => {
-        e.preventDefault();
-        onClose();
-      }}
-      onClick={(e) => {
-        if (e.target === ref.current) onClose();
-      }}
-    >
-      <div className="sheet__inner">
-        <div className="sheet__head">
-          <h2 id="sheet-title">{title}</h2>
-          <button className="button button--quiet" type="button" onClick={onClose}>
-            Закрыть
-          </button>
-        </div>
-        {children}
-      </div>
-    </dialog>
   );
 }
 
@@ -505,35 +473,6 @@ function EditAccountForm({ account: a, onDone }: { account: AccountRow; onDone: 
         )}
       </div>
     </form>
-  );
-}
-
-function MoneyField(props: {
-  id: string;
-  label: string;
-  side?: "own" | "company";
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div className="field">
-      <label htmlFor={props.id}>
-        {props.side && <span className={`swatch swatch--${props.side}`} aria-hidden="true" />}
-        {props.label}
-      </label>
-      <div className="money-input">
-        <input
-          id={props.id}
-          type="text"
-          inputMode="decimal"
-          autoComplete="off"
-          placeholder="0"
-          value={props.value}
-          onChange={(e) => props.onChange(formatAmountInput(e.target.value))}
-        />
-        <span aria-hidden="true">₸</span>
-      </div>
-    </div>
   );
 }
 

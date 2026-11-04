@@ -16,6 +16,17 @@ const MESSAGES: Record<string, string> = {
   opening_advance_too_big: "Денег компании не может быть больше, чем всего на счёте",
   foreign_opening_not_supported: "Остаток валютного счёта пока можно завести только нулевым",
   currency_invalid: "Выберите валюту из списка",
+  category_not_found: "Категория не найдена",
+  category_name_taken: "Категория с таким названием уже есть",
+  entry_not_found: "Запись не найдена: возможно, её уже удалили",
+  field_invalid: "Поле заполнено неверно",
+  source_required: "Выберите, чьими деньгами оплачено: на счёте есть аванс",
+  foreign_amount_not_supported: "Пока можно записывать только тенге на тенговый счёт: валюта появится позже",
+  entry_type_not_supported: "Этот тип записи появится в следующей версии",
+  entry_status_not_supported: "Черновики появятся вместе с быстрым вводом",
+  debt_overpay: "Вернуть можно не больше текущего долга",
+  advance_return_too_big: "Нельзя вернуть больше, чем аванса на счёте",
+  refund_too_big: "Возврат больше суммы исходной траты",
 };
 
 export function errorText(error: { message?: string } | null | undefined): string {

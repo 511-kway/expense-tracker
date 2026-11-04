@@ -62,3 +62,11 @@ export function amountOrZero(text: string): number | null {
   if (parsed.ok) return parsed.minor;
   return parsed.error === "empty" ? 0 : null;
 }
+
+/** Сумма в минимальных единицах → текст поля суммы для правки: «60 000», «1 500,50». */
+export function minorToAmountInput(minor: number): string {
+  if (!Number.isSafeInteger(minor) || minor < 0) throw new RangeError(`not a whole non-negative amount: ${minor}`);
+  const minorPart = minor % 100;
+  const major = (minor - minorPart) / 100;
+  return formatAmountInput(minorPart === 0 ? String(major) : `${major},${String(minorPart).padStart(2, "0")}`);
+}
