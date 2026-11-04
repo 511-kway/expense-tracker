@@ -42,6 +42,10 @@ const MESSAGES: Record<string, string> = {
   note_already_processed: "Заметка уже разобрана: запись из неё есть в разобранных",
   file_not_found: "Файл не загрузился. Приложите его ещё раз",
   attachment_not_found: "Вложение не найдено: возможно, его уже открепили",
+  duplicate_external_id: "Строка уже импортирована",
+  import_batch_not_found: "Загрузка не найдена: выберите файл заново",
+  import_batch_committed: "Этот файл уже загружен",
+  too_many_rows: "Больше 5000 строк за раз не загрузить: разделите файл",
 };
 
 export function errorText(error: { message?: string } | null | undefined): string {

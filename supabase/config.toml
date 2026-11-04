@@ -413,6 +413,9 @@ verify_jwt = true
 [functions.export]
 verify_jwt = true
 
+[functions.import_parse]
+verify_jwt = true
+
 [analytics]
 enabled = true
 port = 54327

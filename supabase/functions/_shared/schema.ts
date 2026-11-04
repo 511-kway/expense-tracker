@@ -83,6 +83,24 @@ export function minorToMajor(minor: string | number | bigint): string {
   return `${sign}${digits.slice(0, -2)}.${digits.slice(-2)}`;
 }
 
+/**
+ * Сумма из файла импорта → целые минимальные единицы строкой со знаком: "-1500.00" → "-150000".
+ * Отрицательная пишется и минусом, и в скобках: "(1500.00)" (бухгалтерский вид, док 04, раздел 9).
+ * Разбор строкой, без float. Больше двух знаков после точки = `amount_too_precise`; разделители
+ * тысяч, запятая вместо точки, экспонента и прочее = `amount_invalid` (ошибки строки).
+ */
+export function parseMoney(text: string): { minor: string } | { error: "amount_invalid" | "amount_too_precise" } {
+  const match = /^(?:([+-]?)(\d*)(?:\.(\d*))?|\((\d*)(?:\.(\d*))?\))$/.exec(text.trim());
+  if (!match) return { error: "amount_invalid" };
+  const negative = match[1] === "-" || match[4] !== undefined;
+  const whole = match[2] ?? match[4] ?? "";
+  const fraction = match[3] ?? match[5] ?? "";
+  if (whole === "" && fraction === "") return { error: "amount_invalid" };
+  if (fraction.length > 2) return { error: "amount_too_precise" };
+  const digits = (whole + fraction.padEnd(2, "0")).replace(/^0+(?=\d)/, "");
+  return { minor: negative && digits !== "0" ? `-${digits}` : digits };
+}
+
 /** Курс из базы ("480.00000000") без хвостовых нулей: "480", "453.64". */
 export function trimRate(rate: string): string {
   return rate.includes(".") ? rate.replace(/0+$/, "").replace(/\.$/, "") : rate;
@@ -237,4 +255,179 @@ export function settlementRecord(row: SettlementMovementRow): FileRecord {
     net_after: money(row.net_after_minor),
     external_id: row.external_id,
   };
+}
+
+// Импорт (тикет 18): строка файла `expenses` → строка импорта для RPC import_preview. Обратное к
+// entryRecord: названия счетов и категорий остаются названиями (сопоставляет база по точному
+// названию), суммы модулем в минимальных единицах строкой, знак проверяется правилом amountSign,
+// у корректировки он становится adjustment_sign. Ошибки ячеек копятся в `errors` строки.
+
+/** Ячейка файла после чтения: текст (числа исходным текстом), логическое или пусто. */
+export type FileCell = string | boolean | null;
+
+export type RowError = { field: string; code: string; expected?: "+" | "-" };
+
+export const ENTRY_TYPES = [
+  "expense",
+  "income",
+  "transfer",
+  "company_topup",
+  "company_advance_return",
+  "settlement",
+  "netting",
+  "adjustment",
+  "refund",
+] as const;
+
+/** Строка импорта: вход import_preview. Деньги модулем, целыми минимальными единицами строкой. */
+export type ImportRow = {
+  line: number;
+  occurred_on: string | null;
+  type: string | null;
+  account: string | null;
+  amount_minor: string | null;
+  currency: string | null;
+  category: string | null;
+  source: string | null;
+  purpose: string | null;
+  transfer_purpose: string | null;
+  to_account: string | null;
+  fee_minor: string | null;
+  fee_payer: string | null;
+  comment: string | null;
+  title: string | null;
+  external_id: string | null;
+  settlement_direction: string | null;
+  adjustment_target: string | null;
+  adjustment_mode: string | null;
+  adjustment_sign: 1 | -1 | null;
+  adjustment_affects_advance: boolean | null;
+  parent_external_id: string | null;
+  rate: string | null;
+  rate_source: string | null;
+  amount_kzt_minor: string | null;
+  in_analytics: boolean | null;
+  errors: RowError[];
+};
+
+function isIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
+}
+
+function cellText(cell: FileCell | undefined): string | null {
+  if (cell === null || cell === undefined) return null;
+  const text = String(cell).trim();
+  return text === "" ? null : text;
+}
+
+/**
+ * Строка файла (ключи = колонки ENTRY_COLUMNS, отсутствующая колонка = пусто) → строка импорта.
+ * `line`: номер строки в файле (CSV и xlsx: строка листа, шапка = 1; JSON: номер объекта с 1).
+ */
+export function importRow(line: number, cells: Record<string, FileCell>): ImportRow {
+  const errors: RowError[] = [];
+  const values: Record<string, string | boolean | null> = {};
+  const signs: Record<string, 1 | -1 | null> = {};
+  for (const column of ENTRY_COLUMNS) {
+    const raw = cells[column.name];
+    const text = cellText(raw ?? null);
+    values[column.name] = null;
+    if (text === null) continue;
+    switch (column.kind) {
+      case "text":
+        values[column.name] = text;
+        break;
+      case "date":
+        if (isIsoDate(text)) values[column.name] = text;
+        else errors.push({ field: column.name, code: "field_invalid" });
+        break;
+      case "rate":
+        if (/^\d+(\.\d+)?$/.test(text)) values[column.name] = text;
+        else errors.push({ field: column.name, code: "field_invalid" });
+        break;
+      case "bool": {
+        const lower = typeof raw === "boolean" ? String(raw) : text.toLowerCase();
+        if (lower === "true" || lower === "false") values[column.name] = lower === "true";
+        else errors.push({ field: column.name, code: "field_invalid" });
+        break;
+      }
+      case "money": {
+        const parsed = parseMoney(text);
+        if ("error" in parsed) {
+          errors.push({ field: column.name, code: parsed.error });
+        } else {
+          const negative = parsed.minor.startsWith("-");
+          values[column.name] = negative ? parsed.minor.slice(1) : parsed.minor;
+          signs[column.name] = parsed.minor === "0" ? null : negative ? -1 : 1;
+        }
+        break;
+      }
+    }
+  }
+
+  const type = values.type as string | null;
+  if (type === null) {
+    if (!errors.some((e) => e.field === "type")) errors.push({ field: "type", code: "missing_required" });
+  } else if (!(ENTRY_TYPES as readonly string[]).includes(type)) {
+    errors.push({ field: "type", code: "field_invalid" });
+  }
+  if (cellText(cells.amount ?? null) === null) errors.push({ field: "amount", code: "missing_required" });
+
+  // Знак суммы по правилу файла. Корректировка берёт знак из суммы; у погашения без направления
+  // знак не с чем сравнить (база скажет, что направление не заполнено).
+  let adjustmentSign: 1 | -1 | null = null;
+  const known = type !== null && (ENTRY_TYPES as readonly string[]).includes(type);
+  const amountSignOf = signs.amount ?? null;
+  if (known && type === "adjustment") {
+    adjustmentSign = amountSignOf ?? 1;
+  } else if (known && amountSignOf !== null && !(type === "settlement" && values.settlement_direction === null)) {
+    const expected = amountSign({ type: type!, settlement_direction: values.settlement_direction as string | null });
+    if (amountSignOf !== expected) {
+      errors.push({ field: "amount", code: "amount_sign_invalid", expected: sign(expected) });
+    }
+  }
+  if (signs.fee === 1) errors.push({ field: "fee", code: "amount_sign_invalid", expected: "-" });
+  const kztSign = signs.amount_kzt ?? null;
+  const expectedKzt = type === "adjustment" ? adjustmentSign : amountSignOf;
+  if (kztSign !== null && expectedKzt !== null && kztSign !== expectedKzt) {
+    errors.push({ field: "amount_kzt", code: "amount_sign_invalid", expected: sign(expectedKzt) });
+  }
+
+  const text = (name: string) => values[name] as string | null;
+  const bool = (name: string) => values[name] as boolean | null;
+  return {
+    line,
+    occurred_on: text("occurred_on"),
+    type,
+    account: text("account"),
+    amount_minor: text("amount"),
+    currency: text("currency"),
+    category: text("category"),
+    source: text("source"),
+    purpose: text("purpose"),
+    transfer_purpose: text("transfer_purpose"),
+    to_account: text("to_account"),
+    fee_minor: text("fee") === "0" ? null : text("fee"),
+    fee_payer: text("fee_payer"),
+    comment: text("comment"),
+    title: text("title"),
+    external_id: text("external_id"),
+    settlement_direction: text("settlement_direction"),
+    adjustment_target: text("adjustment_target"),
+    adjustment_mode: text("adjustment_mode"),
+    adjustment_sign: adjustmentSign,
+    adjustment_affects_advance: bool("adjustment_affects_advance"),
+    parent_external_id: text("parent_external_id"),
+    rate: text("rate"),
+    rate_source: text("rate_source"),
+    amount_kzt_minor: text("amount_kzt"),
+    in_analytics: bool("in_analytics"),
+    errors,
+  };
+}
+
+function sign(value: 1 | -1): "+" | "-" {
+  return value === 1 ? "+" : "-";
 }

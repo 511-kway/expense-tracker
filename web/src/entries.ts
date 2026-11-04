@@ -124,7 +124,7 @@ export type EntryWarning =
   | { code: "possible_duplicate"; entry_id: string; duplicate_of: string; occurred_on: string }
   | { code: string; [key: string]: unknown };
 
-const TYPE_TITLES: Record<EntryType, string> = {
+export const TYPE_TITLES: Record<EntryType, string> = {
   expense: "Трата",
   income: "Поступление",
   transfer: "Перевод",

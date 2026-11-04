@@ -81,8 +81,12 @@
 ### import_preview(batch) → { batch_id, rows: [...] }
 Принимает распарсенные строки (из Edge Function парсинга), валидирует каждую, помечает возможные дубли, НЕ создаёт записи. Возвращает предпросмотр с пометками.
 
+Реализация (тикет 18): `import_preview(p_rows, p_filename, p_format)`, `p_rows` = строки от `import_parse`. Создаёт партию `import_batches` (status `preview`) и прогоняет строки так же, как подтверждение (каждая строка: `entry_from_payload` → `check_entry` → `require_category` → вставка; один пересчёт), затем откатывает прогон. Ответ `{batch_id, status, rows, warnings, rows_total, rows_create, rows_skip, rows_error, rows_duplicate}`; строка отчёта `{line, status: create|skip|excluded|error, errors: [{code, field, details}], duplicates: [{entry_id, occurred_on, title, amount_minor, line?}], entry_id, type, occurred_on, account, to_account, category, title, amount_minor, currency, adjustment_sign, external_id}`. `field` = колонка файла (`account`, а не `account_id`). Ошибки разбора файла из строки (`amount_too_precise`, `amount_invalid`, `amount_sign_invalid`, `field_invalid`) переносятся в отчёт как есть. Больше 5000 строк: `too_many_rows`.
+
 ### import_commit(batch_id) → { created, skipped }
 Создаёт все строки одной транзакцией как done. Если хоть одна строка невалидна, откат всей партии, `import_batches.status = failed` (ADR-0004). Вызывает `recompute` один раз в конце. Идемпотентность по `external_id`.
+
+Реализация (тикет 18): `import_commit(p_batch_id, p_exclude_lines int[] default '{}')`. Строки, чей `external_id` уже есть у записи пользователя (свой `external_id` записи или её id, как пишет экспорт), пропускаются (`skip`); `p_exclude_lines` = строки, которые владелец решил не создавать (возможные дубли). Ответ `{ok, batch_id, status, created, skipped}` плюс отчёт как у предпросмотра. При любой ошибке функция не падает, а возвращает `ok: false, status: failed` с отчётом: записи откатываются в подтранзакции, пометка партии и отчёт (`import_batches.report`) остаются. Ошибка пересчёта (ADR-0006) приходит в строку записи, на которой сломалась. Чужая или несуществующая партия: `import_batch_not_found`; уже загруженная: `import_batch_committed`.
 
 ### recompute(user_id) → { ok }  (служебная)
 Полный реплей (док 03, раздел 7). Обычно вызывается другими функциями, не напрямую клиентом. Можно выставить как админский RPC для ручного пересчёта.
@@ -123,6 +127,8 @@ RPC для блока пересчёта в форме (тикет 14): тенг
 ### import_parse(file) → { rows: [...] }
 Парсит загруженный CSV/Excel/JSON в массив строк по схеме (док 04, раздел 8). Возвращает строки для `import_preview`. Не пишет в базу.
 
+Реализация (тикет 18): `supabase/functions/import_parse`, POST multipart с полем `file` (csv, xlsx, json или zip экспорта, из него берётся `expenses.*`) и JWT пользователя → `200 {filename, format, rows, errors}`. `errors` = ошибки файла целиком (`format_unsupported`, `file_invalid`, `columns_missing`, `columns_unknown`, `file_empty`, `zip_without_expenses`, `too_many_rows`), тогда `rows` пусто. Строка: `line` (CSV и xlsx: номер строки листа, шапка 1; JSON: номер объекта с 1), поля схемы, счета и категории названиями, `amount_minor`, `fee_minor`, `amount_kzt_minor` модулем целыми минимальными единицами строкой, `adjustment_sign` из знака суммы, `errors` ячеек. `403 not_allowed`, `400 field_invalid` (`file`), `413 file_too_large` (больше 10 МиБ). GET `?template=csv|xlsx|json` отдаёт шаблон (файл `expenses` с примерами строк).
+
 ### claude_ingest(payload, service_token) → { entry_id }
 Вход для Claude Code: создаёт запись из разобранной заметки. Проверяет служебный токен (сравнение по хэшу). Дальше та же логика, что `create_entry`. Пишет под `user_id` владельца.
 
@@ -153,7 +159,11 @@ RPC для блока пересчёта в форме (тикет 14): тенг
 | `archive_nonzero` | архив счёта с остатком/авансом | Обнулите остаток и аванс перед архивом |
 | `account_delete_forbidden` | удаление счёта с операциями | Счёт с операциями можно только архивировать |
 | `account_not_found`, `category_not_found` | импорт, несопоставленное имя | Счёт или категория не найдены |
-| `duplicate_external_id` | повтор external_id | Строка уже импортирована |
+| `duplicate_external_id` | повтор external_id внутри файла (повтор уже загруженной строки не ошибка, а пропуск) | Строка уже импортирована |
+| `amount_too_precise`, `amount_invalid` | импорт: больше двух знаков после точки; сумма не число схемы | Сумма: больше двух знаков после точки |
+| `amount_sign_invalid` | импорт: знак суммы, комиссии или суммы в тенге не по правилу знака (`expected`: `+` или `-`) | У этого типа записи сумма со знаком минус (плюс) |
+| `import_batch_not_found`, `import_batch_committed` | подтверждение чужой или несуществующей партии; повторное подтверждение | Загрузка не найдена; Этот файл уже загружен |
+| `too_many_rows` | больше 5000 строк в одной партии | Больше 5000 строк за раз не загрузить |
 | `entry_before_start` | дата раньше старта счёта или начала учёта | Запись раньше даты старта счёта |
 | `not_allowed` | `app_users.allowed = false` | Добавили вас в лист ожидания |
 | `start_already_set` | повторный setup_start | Дата начала учёта уже задана |
