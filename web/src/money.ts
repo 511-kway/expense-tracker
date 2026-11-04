@@ -55,3 +55,10 @@ export function formatAmountInput(text: string): string {
   if (!match) return text;
   return `${groupThousands(match[1] ?? "")}${match[2] ?? ""}`;
 }
+
+/** Необязательное поле суммы: пустое = ноль, иначе минимальные единицы или null при ошибке ввода. */
+export function amountOrZero(text: string): number | null {
+  const parsed = parseAmountInput(text);
+  if (parsed.ok) return parsed.minor;
+  return parsed.error === "empty" ? 0 : null;
+}

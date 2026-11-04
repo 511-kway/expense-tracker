@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatAmountInput, formatMoney, parseAmountInput } from "./money";
+import { amountOrZero, formatAmountInput, formatMoney, parseAmountInput } from "./money";
 
 const NB = " ";
 
@@ -73,5 +73,19 @@ describe("formatAmountInput", () => {
 
   it("leaves text it cannot read unchanged so the user can fix it", () => {
     expect(formatAmountInput("12a4")).toBe("12a4");
+  });
+});
+
+describe("amountOrZero", () => {
+  it("treats an empty optional amount field as zero", () => {
+    expect(amountOrZero("")).toBe(0);
+    expect(amountOrZero("  ")).toBe(0);
+  });
+  it("reads a typed amount in minor units", () => {
+    expect(amountOrZero("1 500,50")).toBe(150050);
+  });
+  it("gives null for input that is not an amount", () => {
+    expect(amountOrZero("12,345")).toBeNull();
+    expect(amountOrZero("abc")).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { supabase } from "../supabase";
-import { formatAmountInput, parseAmountInput } from "../money";
+import { amountOrZero, formatAmountInput } from "../money";
 import { todayInAlmaty } from "../dates";
 import { errorText } from "../errors";
 import { OwnershipMark } from "./OwnershipMark";
@@ -120,11 +120,4 @@ function AmountField(props: {
       </div>
     </div>
   );
-}
-
-/** Пустое поле = ноль; иначе тиыны или null при ошибке ввода. */
-function amountOrZero(text: string): number | null {
-  const parsed = parseAmountInput(text);
-  if (parsed.ok) return parsed.minor;
-  return parsed.error === "empty" ? 0 : null;
 }

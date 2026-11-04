@@ -48,7 +48,7 @@ RPC с данными первым шагом зовут `perform public.assert_
 
 ### Движок
 
-Денежная логика в схеме `engine` (миграция `20261105120000_engine_and_first_run.sql`), наружу её не видно. Любая RPC, меняющая записи, в конце зовёт `engine.recompute(user_id)`: полный пересчёт журнала по хронологии (ADR-0002, ADR-0006). Новый тип записи: функция `engine.apply_<тип>(st, e)` и ветка в `engine.apply_entry`; движения только через `engine.post`, нарушения правил через `engine.fail('<код>', e, info)`, предупреждения в `engine.collect_warnings`. Ошибка приходит клиенту как `message` = код, `details` = JSON с `entry_id`.
+Денежная логика в схеме `engine` (миграция `20261105120000_engine_and_first_run.sql`), наружу её не видно. Любая RPC, меняющая записи, в конце зовёт `engine.recompute(user_id)`: полный пересчёт журнала по хронологии (ADR-0002, ADR-0006). Новый тип записи: функция `engine.apply_<тип>(st, e)` и ветка в `engine.apply_entry`; движения только через `engine.post`, нарушения правил через `engine.fail('<код>', e, info)`, предупреждения в `engine.collect_warnings`. Ошибка приходит клиенту как `message` = код, `details` = JSON с `entry_id`. Корректировка (`engine.apply_adjustment`) умеет цели «остаток» (с авансом или без) и обе стороны долга; счета и стартовый остаток в миграции `20261106120000_accounts.sql`.
 
 ## Вход через Google на localhost
 

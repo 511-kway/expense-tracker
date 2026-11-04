@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { OwnershipMark } from "./OwnershipMark";
 import { CompanySettlement } from "./CompanySettlement";
+import { Accounts } from "./Accounts";
 
 type Section = { id: string; label: string; title: string; empty: string; phone: boolean };
 
@@ -51,9 +52,14 @@ export function Shell({
           <OwnershipMark />
           Трекер затрат
         </span>
-        <button className="button button--quiet" type="button" onClick={onSignOut}>
-          Выйти
-        </button>
+        <span className="shell__header-actions">
+          <a className="button button--quiet" href="#/accounts" aria-current={current.id === "accounts" ? "page" : undefined}>
+            Счета
+          </a>
+          <button className="button button--quiet" type="button" onClick={onSignOut}>
+            Выйти
+          </button>
+        </span>
       </header>
 
       <aside className="shell__side">
@@ -79,6 +85,8 @@ export function Shell({
           <h1 id="section-title">{current.title}</h1>
           {current.id === "company" ? (
             <CompanySettlement accountingStartDate={accountingStartDate} />
+          ) : current.id === "accounts" ? (
+            <Accounts accountingStartDate={accountingStartDate} />
           ) : (
             <p className="empty">{current.empty}</p>
           )}
